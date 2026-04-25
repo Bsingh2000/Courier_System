@@ -21,7 +21,6 @@ interface WorkspaceSidebarProps {
     href: string;
     label: string;
   };
-  compactMobileHeader?: boolean;
 }
 
 function isActiveNavItem(pathname: string, href: string) {
@@ -41,7 +40,6 @@ export function WorkspaceSidebar({
   items,
   footer,
   quickAction,
-  compactMobileHeader = false,
 }: WorkspaceSidebarProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -82,10 +80,10 @@ export function WorkspaceSidebar({
   return (
     <>
       <div className="workspace-mobile-bar panel-strong xl:hidden">
-        <div className="relative flex items-start justify-center gap-3 sm:justify-between">
-          <div className="min-w-0 w-full space-y-4 pr-16 text-center sm:w-auto sm:pr-0 sm:text-left">
-            <div className="flex justify-center sm:justify-start">{brand}</div>
-            <div className={cn("text-center sm:text-left", compactMobileHeader && "hidden sm:block")}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1 space-y-4">
+            <div>{brand}</div>
+            <div>
               <p className="section-label">{title}</p>
               <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">
                 {activeItem?.label ?? title}
@@ -96,7 +94,7 @@ export function WorkspaceSidebar({
             </div>
           </div>
 
-          <div className="absolute right-0 top-0 flex shrink-0 items-center gap-2 sm:static">
+          <div className="flex shrink-0 items-center gap-2 self-center">
             {quickAction ? (
               <Link
                 href={quickAction.href}
