@@ -57,6 +57,7 @@ export default async function DriverLayout({
           href: "/driver/stops",
           label: "Stops",
         }}
+        mobileHeaderMode="brand_only"
         footer={
           <>
             <div>

@@ -21,6 +21,7 @@ interface WorkspaceSidebarProps {
     href: string;
     label: string;
   };
+  mobileHeaderMode?: "full" | "brand_only";
 }
 
 function isActiveNavItem(pathname: string, href: string) {
@@ -40,6 +41,7 @@ export function WorkspaceSidebar({
   items,
   footer,
   quickAction,
+  mobileHeaderMode = "full",
 }: WorkspaceSidebarProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -81,20 +83,32 @@ export function WorkspaceSidebar({
     <>
       <div className="workspace-mobile-bar panel-strong xl:hidden">
         <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0 flex-1 space-y-4">
+          <div
+            className={cn(
+              "min-w-0 flex-1",
+              mobileHeaderMode === "brand_only" ? "flex items-center" : "space-y-4",
+            )}
+          >
             <div>{brand}</div>
-            <div>
-              <p className="section-label">{title}</p>
-              <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">
-                {activeItem?.label ?? title}
-              </p>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                {activeItem?.note ?? subtitle}
-              </p>
-            </div>
+            {mobileHeaderMode === "full" ? (
+              <div>
+                <p className="section-label">{title}</p>
+                <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">
+                  {activeItem?.label ?? title}
+                </p>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {activeItem?.note ?? subtitle}
+                </p>
+              </div>
+            ) : null}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 self-center">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-2 self-center",
+              mobileHeaderMode === "brand_only" && "pr-16 sm:pr-0",
+            )}
+          >
             {quickAction ? (
               <Link
                 href={quickAction.href}
