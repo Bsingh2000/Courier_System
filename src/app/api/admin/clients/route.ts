@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireAdminSession } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errors";
 import { createClientAccount, recordAuditEvent } from "@/lib/repository";
 import { clientAccountCreateSchema } from "@/lib/validators";
 
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Client creation failed.";
+    const message = getErrorMessage(error, "Client creation failed.");
     const status = message === "UNAUTHORIZED" ? 401 : 400;
 
     await recordAuditEvent({

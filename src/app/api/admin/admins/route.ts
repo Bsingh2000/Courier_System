@@ -4,6 +4,7 @@ import {
   requireAdminManagementSession,
   requireAdminSession,
 } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errors";
 import { createAdminAccount, recordAuditEvent } from "@/lib/repository";
 import { adminAccountCreateSchema } from "@/lib/validators";
 
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Admin creation failed.";
+    const message = getErrorMessage(error, "Admin creation failed.");
     const status =
       message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
 

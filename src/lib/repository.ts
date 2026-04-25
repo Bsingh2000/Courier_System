@@ -1928,6 +1928,19 @@ export async function createAdminAccount(
 
   const supabase = createSupabaseAdminClient();
   const adminId = crypto.randomUUID();
+  const { data: existingAdmin, error: existingAdminError } = await supabase
+    .from("admin_accounts")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (existingAdminError) {
+    throw existingAdminError;
+  }
+
+  if (existingAdmin) {
+    throw new Error("An admin account already exists for this email.");
+  }
 
   await syncSupabaseAuthIdentity({
     id: adminId,
@@ -2451,6 +2464,19 @@ export async function createClientAccount(
   const supabase = createSupabaseAdminClient();
   const timestamp = nowIso();
   const clientId = crypto.randomUUID();
+  const { data: existingClient, error: existingClientError } = await supabase
+    .from("client_accounts")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (existingClientError) {
+    throw existingClientError;
+  }
+
+  if (existingClient) {
+    throw new Error("A client account already exists for this email.");
+  }
 
   await syncSupabaseAuthIdentity({
     id: clientId,
@@ -2573,6 +2599,19 @@ export async function createDriverAccount(
   const supabase = createSupabaseAdminClient();
   const timestamp = nowIso();
   const driverId = crypto.randomUUID();
+  const { data: existingDriver, error: existingDriverError } = await supabase
+    .from("drivers")
+    .select("id")
+    .or(`email.eq.${normalizedEmail},phone.eq.${input.phone}`)
+    .maybeSingle();
+
+  if (existingDriverError) {
+    throw existingDriverError;
+  }
+
+  if (existingDriver) {
+    throw new Error("A driver already exists with that email or phone.");
+  }
 
   await syncSupabaseAuthIdentity({
     id: driverId,
