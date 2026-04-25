@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth";
 import { getErrorMessage } from "@/lib/errors";
 import { createClientAccount, recordAuditEvent } from "@/lib/repository";
-import { clientAccountCreateSchema } from "@/lib/validators";
+import { clientAccountCreateRequestSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
 
   try {
     const session = await requireAdminSession();
-    const payload = clientAccountCreateSchema.parse(await request.json());
+    const payload = clientAccountCreateRequestSchema.parse(await request.json());
     const result = await createClientAccount(payload, {
       requestId,
       actor: {
@@ -20,6 +20,7 @@ export async function POST(request: Request) {
         id: session.adminId,
         label: session.email,
       },
+      onboardingMethod: payload.onboardingMethod,
     });
 
     return NextResponse.json({ ok: true, ...result });

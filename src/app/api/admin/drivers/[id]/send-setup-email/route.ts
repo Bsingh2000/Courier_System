@@ -2,37 +2,47 @@ import { NextResponse } from "next/server";
 
 import { requireAdminSession } from "@/lib/auth";
 import { getErrorMessage } from "@/lib/errors";
-import { createDriverAccount, recordAuditEvent } from "@/lib/repository";
-import { driverCreateRequestSchema } from "@/lib/validators";
+import { recordAuditEvent, sendDriverSetupEmail } from "@/lib/repository";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+export async function POST(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const requestId = crypto.randomUUID();
 
   try {
     const session = await requireAdminSession();
-    const payload = driverCreateRequestSchema.parse(await request.json());
-    const result = await createDriverAccount(payload, {
+    const { id } = await params;
+    const result = await sendDriverSetupEmail(id, {
       requestId,
       actor: {
         type: "admin",
         id: session.adminId,
         label: session.email,
       },
-      onboardingMethod: payload.onboardingMethod,
     });
+
+    if (!result) {
+      return NextResponse.json(
+        { ok: false, message: "Driver not found." },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    const message = getErrorMessage(error, "Driver creation failed.");
+    const message = getErrorMessage(error, "Setup email failed.");
     const status = message === "UNAUTHORIZED" ? 401 : 400;
+    const { id } = await params;
 
     await recordAuditEvent({
       requestId,
       entityType: "driver",
-      action: "driver.create_failed",
-      summary: `Driver creation failed: ${message}`,
+      entityId: id,
+      action: "driver.setup_email_failed",
+      summary: `Driver setup email failed: ${message}`,
       actor: {
         type: "admin",
         label: "unknown-admin",

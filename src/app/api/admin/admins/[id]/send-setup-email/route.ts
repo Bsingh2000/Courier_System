@@ -5,38 +5,46 @@ import {
   requireAdminSession,
 } from "@/lib/auth";
 import { getErrorMessage } from "@/lib/errors";
-import { createAdminAccount, recordAuditEvent } from "@/lib/repository";
-import { adminAccountCreateRequestSchema } from "@/lib/validators";
+import { recordAuditEvent, sendAdminSetupEmail } from "@/lib/repository";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+export async function POST(
+  _request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
   const requestId = crypto.randomUUID();
 
   try {
     const session = requireAdminManagementSession(await requireAdminSession());
-    const payload = adminAccountCreateRequestSchema.parse(await request.json());
-    const result = await createAdminAccount(payload, {
+    const { id } = await context.params;
+    const result = await sendAdminSetupEmail(id, {
       requestId,
       actor: {
         type: "admin",
         id: session.adminId,
         label: session.email,
       },
-      onboardingMethod: payload.onboardingMethod,
     });
+
+    if (!result) {
+      return NextResponse.json(
+        { ok: false, message: "Admin user was not found." },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    const message = getErrorMessage(error, "Admin creation failed.");
+    const message = getErrorMessage(error, "Setup email failed.");
     const status =
       message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
 
     await recordAuditEvent({
       requestId,
       entityType: "admin_account",
-      action: "admin_account.create_failed",
-      summary: `Admin creation failed: ${message}`,
+      action: "admin_account.setup_email_failed",
+      summary: `Admin setup email failed: ${message}`,
       actor: {
         type: "admin",
         label: "unknown-admin",

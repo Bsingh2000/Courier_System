@@ -23,6 +23,7 @@ export type BusinessInquiryStatus =
   | "invited"
   | "archived";
 export type ClientAccountStatus = "active" | "paused";
+export type AccountOnboardingMethod = "temporary_password" | "setup_email";
 export type AuditActorType = "admin" | "client" | "driver" | "system";
 export type AuditEntityType =
   | "delivery"

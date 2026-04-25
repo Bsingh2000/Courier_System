@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { ChevronDown, KeyRound, UserPlus } from "lucide-react";
+import { ChevronDown, KeyRound, MailPlus } from "lucide-react";
 
 import type { AdminAccountStatus, AdminRole } from "@/lib/types";
 
@@ -18,8 +18,14 @@ export function AdminCreateForm() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = useState<"success" | "error" | null>(
+    null,
+  );
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
   const [createdEmail, setCreatedEmail] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    "temporary_password" | "setup_email" | null
+  >(null);
   const [isPending, startTransition] = useTransition();
 
   function updateField(name: keyof typeof initialForm, value: string) {
@@ -35,41 +41,72 @@ export function AdminCreateForm() {
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submitter = (event.nativeEvent as SubmitEvent)
+      .submitter as HTMLButtonElement | null;
+    const onboardingMethod =
+      submitter?.value === "temporary_password"
+        ? "temporary_password"
+        : "setup_email";
 
     startTransition(async () => {
+      setPendingAction(onboardingMethod);
       setFeedback(null);
+      setFeedbackTone(null);
       setTemporaryPassword(null);
       setCreatedEmail(null);
 
-      const response = await fetch("/api/admin/admins", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(form),
-      });
+      try {
+        const response = await fetch("/api/admin/admins", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...form,
+            onboardingMethod,
+          }),
+        });
 
-      const payload = (await response.json()) as {
-        ok: boolean;
-        message?: string;
-        account?: {
-          email: string;
-          name: string;
+        const payload = (await response.json()) as {
+          ok: boolean;
+          message?: string;
+          account?: {
+            email: string;
+            name: string;
+          };
+          temporaryPassword?: string | null;
+          setupEmailSent?: boolean;
+          setupEmailFallback?: boolean;
         };
-        temporaryPassword?: string;
-      };
 
-      if (!response.ok || !payload.ok) {
-        setFeedback(payload.message ?? "Admin creation failed.");
-        return;
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Admin creation failed.");
+          return;
+        }
+
+        const email = payload.account?.email ?? form.email;
+        const accountName = payload.account?.name ?? "Admin user";
+
+        if (payload.setupEmailSent) {
+          setFeedback(`Setup email sent to ${email}.`);
+        } else if (payload.setupEmailFallback) {
+          setFeedback(
+            `Setup email is unavailable in demo mode, so a temporary password was generated for ${email}.`,
+          );
+        } else {
+          setFeedback(`Temporary password generated for ${accountName}.`);
+        }
+
+        setFeedbackTone("success");
+        setTemporaryPassword(payload.temporaryPassword ?? null);
+        setCreatedEmail(payload.account?.email ?? null);
+        setIsExpanded(true);
+        resetForm();
+        router.refresh();
+      } finally {
+        setPendingAction(null);
       }
-
-      setFeedback(`${payload.account?.name ?? "Admin user"} created.`);
-      setTemporaryPassword(payload.temporaryPassword ?? null);
-      setCreatedEmail(payload.account?.email ?? null);
-      setIsExpanded(true);
-      resetForm();
-      router.refresh();
     });
   }
 
@@ -84,8 +121,9 @@ export function AdminCreateForm() {
                 Add company admins and dispatch roles
               </h2>
               <p className="copy mt-3 max-w-3xl">
-                Create internal users for your company workspace, assign their role,
-                and hand them a temporary password for their first sign-in.
+                Create internal users for your company workspace, assign their
+                role, and either send a password setup email or hand them a
+                temporary password for first sign-in.
               </p>
             </div>
 
@@ -167,14 +205,30 @@ export function AdminCreateForm() {
               </select>
             </label>
 
-            <div className="flex items-end justify-end xl:col-span-2">
+            <div className="flex flex-wrap items-end justify-end gap-2 xl:col-span-2">
               <button
                 type="submit"
+                name="onboardingMethod"
+                value="temporary_password"
+                className="button-secondary w-full sm:w-auto"
+                disabled={isPending}
+              >
+                <KeyRound className="h-4 w-4" />
+                {isPending && pendingAction === "temporary_password"
+                  ? "Generating..."
+                  : "Generate temp password"}
+              </button>
+              <button
+                type="submit"
+                name="onboardingMethod"
+                value="setup_email"
                 className="button-primary w-full sm:w-auto"
                 disabled={isPending}
               >
-                <UserPlus className="h-4 w-4" />
-                {isPending ? "Creating..." : "Create admin user"}
+                <MailPlus className="h-4 w-4" />
+                {isPending && pendingAction === "setup_email"
+                  ? "Sending..."
+                  : "Send setup email"}
               </button>
             </div>
           </form>
@@ -196,7 +250,15 @@ export function AdminCreateForm() {
         </>
       ) : null}
 
-      {feedback ? <p className="mt-3 text-xs text-orange-100">{feedback}</p> : null}
+      {feedback ? (
+        <p
+          className={`mt-3 text-xs ${
+            feedbackTone === "error" ? "text-rose-200" : "text-emerald-100"
+          }`}
+        >
+          {feedback}
+        </p>
+      ) : null}
     </section>
   );
 }

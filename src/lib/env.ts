@@ -55,3 +55,38 @@ export function getAdminPassword() {
 export function getSessionSecret() {
   return process.env.SESSION_SECRET ?? DEMO_SECRET;
 }
+
+function normalizeAppUrl(url: string) {
+  return url.replace(/\/+$/, "");
+}
+
+export function getAppUrl() {
+  const explicitUrl =
+    process.env.APP_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.SITE_URL;
+
+  if (explicitUrl) {
+    return normalizeAppUrl(explicitUrl);
+  }
+
+  const vercelUrl =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+
+  if (vercelUrl) {
+    const url = vercelUrl.startsWith("http") ? vercelUrl : `https://${vercelUrl}`;
+    return normalizeAppUrl(url);
+  }
+
+  return "http://localhost:3000";
+}
+
+export function getPasswordSetupUrl(accountType?: "admin" | "client" | "driver") {
+  const url = new URL("/set-password", getAppUrl());
+
+  if (accountType) {
+    url.searchParams.set("account", accountType);
+  }
+
+  return url.toString();
+}

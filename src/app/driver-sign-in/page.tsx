@@ -6,7 +6,14 @@ import { isDemoMode } from "@/lib/env";
 import { BrandMark } from "@/components/shell/BrandMark";
 import { DriverLoginForm } from "@/components/public/DriverLoginForm";
 
-export default async function DriverSignInPage() {
+export default async function DriverSignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    email?: string | string[] | undefined;
+    setup?: string | string[] | undefined;
+  }>;
+}) {
   const session = await getCurrentDriverSession();
 
   if (session) {
@@ -19,6 +26,11 @@ export default async function DriverSignInPage() {
         password: "driver123",
       }
     : undefined;
+  const params = await searchParams;
+  const initialEmail = Array.isArray(params.email) ? params.email[0] : params.email;
+  const setup = Array.isArray(params.setup) ? params.setup[0] : params.setup;
+  const notice =
+    setup === "1" ? "Password updated. Sign in to continue." : undefined;
 
   return (
     <main className="shell flex min-h-screen flex-col justify-center py-10">
@@ -29,7 +41,11 @@ export default async function DriverSignInPage() {
         </Link>
       </div>
 
-      <DriverLoginForm demoHint={demoHint} />
+      <DriverLoginForm
+        demoHint={demoHint}
+        initialEmail={initialEmail}
+        notice={notice}
+      />
     </main>
   );
 }

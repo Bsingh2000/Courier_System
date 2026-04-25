@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { MailPlus, Save } from "lucide-react";
+import { KeyRound, MailPlus, Save } from "lucide-react";
 
 import type { BusinessInquiryRecord } from "@/lib/types";
 import { getInquiryTone, getStatusLabel } from "@/lib/utils";
@@ -16,57 +16,103 @@ export function InquiryActionCard({ inquiry }: InquiryActionCardProps) {
   const router = useRouter();
   const [status, setStatus] = useState(inquiry.status);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = useState<"success" | "error" | null>(
+    null,
+  );
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
+  const [invitedEmail, setInvitedEmail] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    "save" | "temporary_password" | "setup_email" | null
+  >(null);
   const [isPending, startTransition] = useTransition();
 
   function handleSaveStatus() {
     startTransition(async () => {
+      setPendingAction("save");
       setFeedback(null);
+      setFeedbackTone(null);
       setTemporaryPassword(null);
+      setInvitedEmail(null);
 
-      const response = await fetch(`/api/admin/inquiries/${inquiry.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ status }),
-      });
+      try {
+        const response = await fetch(`/api/admin/inquiries/${inquiry.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status }),
+        });
 
-      const payload = (await response.json()) as { ok: boolean; message?: string };
+        const payload = (await response.json()) as { ok: boolean; message?: string };
 
-      if (!response.ok || !payload.ok) {
-        setFeedback(payload.message ?? "Status update failed.");
-        return;
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Status update failed.");
+          return;
+        }
+
+        setFeedbackTone("success");
+        setFeedback("Inquiry updated.");
+        router.refresh();
+      } finally {
+        setPendingAction(null);
       }
-
-      setFeedback("Inquiry updated.");
-      router.refresh();
     });
   }
 
-  function handleInvite() {
+  function handleInvite(onboardingMethod: "temporary_password" | "setup_email") {
     startTransition(async () => {
+      setPendingAction(onboardingMethod);
       setFeedback(null);
+      setFeedbackTone(null);
       setTemporaryPassword(null);
+      setInvitedEmail(null);
 
-      const response = await fetch(`/api/admin/inquiries/${inquiry.id}/invite`, {
-        method: "POST",
-      });
+      try {
+        const response = await fetch(`/api/admin/inquiries/${inquiry.id}/invite`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ onboardingMethod }),
+        });
 
-      const payload = (await response.json()) as {
-        ok: boolean;
-        message?: string;
-        temporaryPassword?: string;
-      };
+        const payload = (await response.json()) as {
+          ok: boolean;
+          message?: string;
+          account?: {
+            email: string;
+          };
+          temporaryPassword?: string | null;
+          setupEmailSent?: boolean;
+          setupEmailFallback?: boolean;
+        };
 
-      if (!response.ok || !payload.ok) {
-        setFeedback(payload.message ?? "Invitation failed.");
-        return;
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Invitation failed.");
+          return;
+        }
+
+        const email = payload.account?.email ?? inquiry.email;
+
+        if (payload.setupEmailSent) {
+          setFeedback(`Setup email sent to ${email}.`);
+        } else if (payload.setupEmailFallback) {
+          setFeedback(
+            `Setup email is unavailable in demo mode, so a temporary password was generated for ${email}.`,
+          );
+        } else {
+          setFeedback("Client portal invitation created with a temporary password.");
+        }
+
+        setFeedbackTone("success");
+        setTemporaryPassword(payload.temporaryPassword ?? null);
+        setInvitedEmail(email);
+        router.refresh();
+      } finally {
+        setPendingAction(null);
       }
-
-      setTemporaryPassword(payload.temporaryPassword ?? null);
-      setFeedback("Client portal invitation created.");
-      router.refresh();
     });
   }
 
@@ -108,7 +154,7 @@ export function InquiryActionCard({ inquiry }: InquiryActionCardProps) {
             </select>
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={handleSaveStatus}
@@ -116,29 +162,54 @@ export function InquiryActionCard({ inquiry }: InquiryActionCardProps) {
               disabled={isPending}
             >
               <Save className="h-4 w-4" />
-              Save status
+              {isPending && pendingAction === "save" ? "Saving..." : "Save status"}
             </button>
             <button
               type="button"
-              onClick={handleInvite}
+              onClick={() => handleInvite("temporary_password")}
+              className="button-secondary"
+              disabled={isPending || Boolean(inquiry.invitedClientId)}
+            >
+              <KeyRound className="h-4 w-4" />
+              {isPending && pendingAction === "temporary_password"
+                ? "Generating..."
+                : inquiry.invitedClientId
+                  ? "Already invited"
+                  : "Generate temp password"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleInvite("setup_email")}
               className="button-primary"
               disabled={isPending || Boolean(inquiry.invitedClientId)}
             >
               <MailPlus className="h-4 w-4" />
-              {inquiry.invitedClientId ? "Already invited" : "Invite client"}
+              {isPending && pendingAction === "setup_email"
+                ? "Sending..."
+                : inquiry.invitedClientId
+                  ? "Already invited"
+                  : "Send setup email"}
             </button>
           </div>
 
           {temporaryPassword ? (
             <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-              Temporary password:
+              {invitedEmail ? `${invitedEmail} can sign in with this temporary password.` : "Temporary password:"}
               <span className="ml-2 font-mono text-xs tracking-[0.2em]">
                 {temporaryPassword}
               </span>
             </div>
           ) : null}
 
-          {feedback ? <p className="text-xs text-orange-100">{feedback}</p> : null}
+          {feedback ? (
+            <p
+              className={`text-xs ${
+                feedbackTone === "error" ? "text-rose-200" : "text-emerald-100"
+              }`}
+            >
+              {feedback}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

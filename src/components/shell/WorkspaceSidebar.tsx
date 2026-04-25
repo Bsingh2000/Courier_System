@@ -82,10 +82,10 @@ export function WorkspaceSidebar({
   return (
     <>
       <div className="workspace-mobile-bar panel-strong xl:hidden">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-4">
-            {brand}
-            <div className={cn(compactMobileHeader && "hidden sm:block")}>
+        <div className="relative flex items-start justify-center gap-3 sm:justify-between">
+          <div className="min-w-0 w-full space-y-4 pr-16 text-center sm:w-auto sm:pr-0 sm:text-left">
+            <div className="flex justify-center sm:justify-start">{brand}</div>
+            <div className={cn("text-center sm:text-left", compactMobileHeader && "hidden sm:block")}>
               <p className="section-label">{title}</p>
               <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">
                 {activeItem?.label ?? title}
@@ -96,11 +96,11 @@ export function WorkspaceSidebar({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="absolute right-0 top-0 flex shrink-0 items-center gap-2 sm:static">
             {quickAction ? (
               <Link
                 href={quickAction.href}
-                className={cn("button-secondary", compactMobileHeader && "hidden sm:inline-flex")}
+                className={cn("button-secondary hidden sm:inline-flex")}
               >
                 <ArrowUpRight className="h-4 w-4" />
                 {quickAction.label}

@@ -44,6 +44,10 @@ export const adminLoginSchema = z.object({
 export const clientLoginSchema = adminLoginSchema;
 export const driverLoginSchema = adminLoginSchema;
 
+export const onboardingMethodSchema = z
+  .enum(["temporary_password", "setup_email"])
+  .default("temporary_password");
+
 export const trackingQuerySchema = z.object({
   q: z.string().trim().min(3).max(40),
 });
@@ -77,6 +81,10 @@ export const clientAccountCreateSchema = z.object({
   status: z.enum(["active", "paused"]).default("active"),
 });
 
+export const clientAccountCreateRequestSchema = clientAccountCreateSchema.extend({
+  onboardingMethod: onboardingMethodSchema,
+});
+
 export const clientAccountUpdateSchema = z
   .object({
     status: z.enum(["active", "paused"]).optional(),
@@ -91,6 +99,10 @@ export const adminAccountCreateSchema = z.object({
   email: z.string().trim().email(),
   role: z.enum(["owner", "admin", "dispatcher", "viewer"]).default("admin"),
   status: z.enum(["active", "paused"]).default("active"),
+});
+
+export const adminAccountCreateRequestSchema = adminAccountCreateSchema.extend({
+  onboardingMethod: onboardingMethodSchema,
 });
 
 export const adminAccountUpdateSchema = z
@@ -155,3 +167,11 @@ export const driverDeliveryUpdateSchema = z
     (value) => Object.values(value).some((item) => item !== undefined),
     "Provide at least one change",
   );
+
+export const driverCreateRequestSchema = driverUpsertSchema.extend({
+  onboardingMethod: onboardingMethodSchema,
+});
+
+export const inquiryInviteRequestSchema = z.object({
+  onboardingMethod: onboardingMethodSchema,
+});

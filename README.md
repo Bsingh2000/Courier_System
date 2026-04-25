@@ -71,10 +71,14 @@ Open `http://localhost:3000/driver-sign-in`.
 2. In the Supabase SQL editor, run [supabase/schema.sql](supabase/schema.sql).
 3. Optionally run [supabase/seed.sql](supabase/seed.sql) for a starter owner account, clients, drivers, and inventory.
 4. Copy `.env.example` to `.env.local` for local work.
-5. Add the same environment variables in Vercel.
-6. Add `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` so server-side password login can use the proper Supabase Auth client.
-7. Use the bootstrap owner credentials to sign in once, then create company admin users from the `Admins` tab.
-8. Deploy the repository from GitHub to Vercel.
+5. Set `APP_URL` to the full URL you want password setup emails to return to. For local work, use `http://localhost:3000`.
+6. In Supabase Auth URL settings, add your `/set-password` URL to the allowed redirect list. Examples:
+   - `http://localhost:3000/set-password`
+   - `https://your-domain.com/set-password`
+7. Add the same environment variables in Vercel.
+8. Add `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` so server-side password login can use the proper Supabase Auth client.
+9. Use the bootstrap owner credentials to sign in once, then create company admin users from the `Admins` tab.
+10. Deploy the repository from GitHub to Vercel.
 
 If you want a demo-ready live instance after Supabase is configured, run:
 
@@ -95,11 +99,21 @@ See `.env.example`.
 - `SUPABASE_SECRET_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `APP_URL` for password setup email redirects
 - `COURIER_ADMIN_EMAIL` for the bootstrap owner login
 - `COURIER_ADMIN_PASSWORD` for the bootstrap owner login
 - `SESSION_SECRET`
 
 The app uses server-side Supabase access for writes and admin reads, and Supabase Auth for admin, client, and driver identities. Existing seeded or legacy accounts migrate into `auth.users` on their next successful password login. If Supabase keys are missing, the app falls back to demo mode automatically.
+
+## Account onboarding
+
+Admins can now onboard company admins, clients, and drivers in two ways:
+
+- `Send setup email` sends a Supabase password setup link to the user
+- `Generate temp password` shows a one-time password for manual handoff
+
+In demo mode, setup email requests fall back to a generated temporary password automatically because no mail delivery is available.
 
 ## Scripts
 

@@ -68,6 +68,103 @@ describe("repository demo workflows", () => {
     expect(invitedAccount?.businessName).toBe("Northshore Medics");
   });
 
+  it("falls back to a temporary password when setup email is requested in demo mode", async () => {
+    const createdAdmin = await createAdminAccount(
+      {
+        name: "Email First Admin",
+        email: "email-first-admin@example.com",
+        role: "admin",
+        status: "active",
+      },
+      {
+        onboardingMethod: "setup_email",
+        actor: {
+          type: "admin",
+          id: "admin-owner-1",
+          label: "admin@routegrid.local",
+        },
+      },
+    );
+
+    expect(createdAdmin.onboardingMethod).toBe("setup_email");
+    expect(createdAdmin.deliveredAs).toBe("temporary_password");
+    expect(createdAdmin.setupEmailSent).toBe(false);
+    expect(createdAdmin.setupEmailFallback).toBe(true);
+    expect(createdAdmin.temporaryPassword).toBeTruthy();
+
+    const createdClient = await createClientAccount(
+      {
+        contactName: "Email First Client",
+        businessName: "Email First Co",
+        phone: "(868) 555-1010",
+        email: "email-first-client@example.com",
+        businessAddress: "10 Demo Street, Chaguanas",
+        status: "active",
+      },
+      {
+        onboardingMethod: "setup_email",
+        actor: {
+          type: "admin",
+          id: "admin-owner-1",
+          label: "admin@routegrid.local",
+        },
+      },
+    );
+
+    expect(createdClient.deliveredAs).toBe("temporary_password");
+    expect(createdClient.setupEmailFallback).toBe(true);
+    expect(createdClient.temporaryPassword).toBeTruthy();
+
+    const createdDriver = await createDriverAccount(
+      {
+        name: "Email First Driver",
+        phone: "(868) 555-2020",
+        email: "email-first-driver@example.com",
+        zone: "east",
+        status: "available",
+        accessStatus: "active",
+        currentRun: "East AM",
+        cashOnHand: 0,
+      },
+      {
+        onboardingMethod: "setup_email",
+        actor: {
+          type: "admin",
+          id: "admin-owner-1",
+          label: "admin@routegrid.local",
+        },
+      },
+    );
+
+    expect(createdDriver.deliveredAs).toBe("temporary_password");
+    expect(createdDriver.setupEmailFallback).toBe(true);
+    expect(createdDriver.temporaryPassword).toBeTruthy();
+  });
+
+  it("falls back to a temporary password when inviting from an inquiry in demo mode with setup email", async () => {
+    const snapshot = await getDashboardSnapshot();
+    const inquiry = snapshot.inquiries.find(
+      (item) => item.status === "qualified" && !item.invitedClientId,
+    );
+
+    expect(inquiry).toBeDefined();
+
+    const invitation = await inviteClientFromInquiry(inquiry!.id, {
+      onboardingMethod: "setup_email",
+      actor: {
+        type: "admin",
+        id: "admin-owner-1",
+        label: "admin@routegrid.local",
+      },
+    });
+
+    expect(invitation?.onboardingMethod).toBe("setup_email");
+    expect(invitation?.deliveredAs).toBe("temporary_password");
+    expect(invitation?.setupEmailSent).toBe(false);
+    expect(invitation?.setupEmailFallback).toBe(true);
+    expect(invitation?.temporaryPassword).toBeTruthy();
+  });
+
   it("prevents deleting the last active owner", async () => {
     const snapshot = await getDashboardSnapshot();
     const owner = snapshot.adminAccounts.find((item) => item.role === "owner");

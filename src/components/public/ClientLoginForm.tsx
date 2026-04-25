@@ -9,11 +9,17 @@ interface ClientLoginFormProps {
     email: string;
     password: string;
   };
+  initialEmail?: string;
+  notice?: string;
 }
 
-export function ClientLoginForm({ demoHint }: ClientLoginFormProps) {
+export function ClientLoginForm({
+  demoHint,
+  initialEmail,
+  notice,
+}: ClientLoginFormProps) {
   const router = useRouter();
-  const [email, setEmail] = useState(demoHint?.email ?? "");
+  const [email, setEmail] = useState(initialEmail ?? demoHint?.email ?? "");
   const [password, setPassword] = useState(demoHint?.password ?? "");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -57,6 +63,12 @@ export function ClientLoginForm({ demoHint }: ClientLoginFormProps) {
           your own activity here.
         </p>
       </div>
+
+      {notice ? (
+        <div className="mb-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+          {notice}
+        </div>
+      ) : null}
 
       {demoHint ? (
         <div className="mb-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">

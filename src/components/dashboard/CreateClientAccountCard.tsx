@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Building2, ChevronDown, UserPlus } from "lucide-react";
+import { Building2, ChevronDown, KeyRound, MailPlus } from "lucide-react";
 
 import type { ClientAccountStatus } from "@/lib/types";
 
@@ -20,8 +20,14 @@ export function CreateClientAccountCard() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = useState<"success" | "error" | null>(
+    null,
+  );
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
   const [createdEmail, setCreatedEmail] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    "temporary_password" | "setup_email" | null
+  >(null);
   const [isPending, startTransition] = useTransition();
 
   function updateField(name: keyof typeof initialForm, value: string) {
@@ -37,41 +43,72 @@ export function CreateClientAccountCard() {
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submitter = (event.nativeEvent as SubmitEvent)
+      .submitter as HTMLButtonElement | null;
+    const onboardingMethod =
+      submitter?.value === "temporary_password"
+        ? "temporary_password"
+        : "setup_email";
 
     startTransition(async () => {
+      setPendingAction(onboardingMethod);
       setFeedback(null);
+      setFeedbackTone(null);
       setTemporaryPassword(null);
       setCreatedEmail(null);
 
-      const response = await fetch("/api/admin/clients", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(form),
-      });
+      try {
+        const response = await fetch("/api/admin/clients", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...form,
+            onboardingMethod,
+          }),
+        });
 
-      const payload = (await response.json()) as {
-        ok: boolean;
-        message?: string;
-        account?: {
-          email: string;
-          businessName: string;
+        const payload = (await response.json()) as {
+          ok: boolean;
+          message?: string;
+          account?: {
+            email: string;
+            businessName: string;
+          };
+          temporaryPassword?: string | null;
+          setupEmailSent?: boolean;
+          setupEmailFallback?: boolean;
         };
-        temporaryPassword?: string;
-      };
 
-      if (!response.ok || !payload.ok) {
-        setFeedback(payload.message ?? "Client creation failed.");
-        return;
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Client creation failed.");
+          return;
+        }
+
+        const email = payload.account?.email ?? form.email;
+        const businessName = payload.account?.businessName ?? "Client account";
+
+        if (payload.setupEmailSent) {
+          setFeedback(`Setup email sent to ${email}.`);
+        } else if (payload.setupEmailFallback) {
+          setFeedback(
+            `Setup email is unavailable in demo mode, so a temporary password was generated for ${email}.`,
+          );
+        } else {
+          setFeedback(`Temporary password generated for ${businessName}.`);
+        }
+
+        setFeedbackTone("success");
+        setTemporaryPassword(payload.temporaryPassword ?? null);
+        setCreatedEmail(payload.account?.email ?? null);
+        setIsExpanded(true);
+        resetForm();
+        router.refresh();
+      } finally {
+        setPendingAction(null);
       }
-
-      setFeedback(`${payload.account?.businessName ?? "Client account"} created.`);
-      setTemporaryPassword(payload.temporaryPassword ?? null);
-      setCreatedEmail(payload.account?.email ?? null);
-      setIsExpanded(true);
-      resetForm();
-      router.refresh();
     });
   }
 
@@ -87,8 +124,8 @@ export function CreateClientAccountCard() {
               </h2>
               <p className="copy mt-3 max-w-3xl">
                 Use this when onboarding happened by phone, in person, or through an
-                internal handoff. The client gets portal access immediately with a
-                temporary password.
+                internal handoff. Choose whether to send a secure setup email or
+                give the client a temporary password right away.
               </p>
             </div>
 
@@ -203,14 +240,30 @@ export function CreateClientAccountCard() {
               </select>
             </label>
 
-            <div className="flex items-end justify-end lg:col-span-1">
+            <div className="flex flex-wrap items-end justify-end gap-2 lg:col-span-1">
               <button
                 type="submit"
+                name="onboardingMethod"
+                value="temporary_password"
+                className="button-secondary w-full sm:w-auto"
+                disabled={isPending}
+              >
+                <KeyRound className="h-4 w-4" />
+                {isPending && pendingAction === "temporary_password"
+                  ? "Generating..."
+                  : "Generate temp password"}
+              </button>
+              <button
+                type="submit"
+                name="onboardingMethod"
+                value="setup_email"
                 className="button-primary w-full sm:w-auto"
                 disabled={isPending}
               >
-                <UserPlus className="h-4 w-4" />
-                {isPending ? "Creating..." : "Create client access"}
+                <MailPlus className="h-4 w-4" />
+                {isPending && pendingAction === "setup_email"
+                  ? "Sending..."
+                  : "Send setup email"}
               </button>
             </div>
           </form>
@@ -229,7 +282,15 @@ export function CreateClientAccountCard() {
         </>
       ) : null}
 
-      {feedback ? <p className="mt-3 text-xs text-orange-100">{feedback}</p> : null}
+      {feedback ? (
+        <p
+          className={`mt-3 text-xs ${
+            feedbackTone === "error" ? "text-rose-200" : "text-emerald-100"
+          }`}
+        >
+          {feedback}
+        </p>
+      ) : null}
     </section>
   );
 }

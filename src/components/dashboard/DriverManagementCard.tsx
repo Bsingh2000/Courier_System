@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { KeyRound, RotateCcw, Save, Trash2 } from "lucide-react";
+import { KeyRound, MailPlus, RotateCcw, Save, Trash2 } from "lucide-react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import type { DriverRecord, DriverRunSnapshot } from "@/lib/types";
@@ -36,7 +36,13 @@ export function DriverManagementCard({
     cashOnHand: String(driver.cashOnHand),
   });
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = useState<"success" | "error" | null>(
+    null,
+  );
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    "save" | "reset_password" | "setup_email" | "delete" | null
+  >(null);
   const [isPending, startTransition] = useTransition();
   const hasChanges =
     form.name !== driver.name ||
@@ -76,54 +82,119 @@ export function DriverManagementCard({
     }
 
     startTransition(async () => {
+      setPendingAction("save");
       setFeedback(null);
+      setFeedbackTone(null);
 
-      const response = await fetch(`/api/admin/drivers/${driver.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...form,
-          cashOnHand: Number(form.cashOnHand || 0),
-        }),
-      });
+      try {
+        const response = await fetch(`/api/admin/drivers/${driver.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...form,
+            cashOnHand: Number(form.cashOnHand || 0),
+          }),
+        });
 
-      const payload = (await response.json()) as { ok: boolean; message?: string };
+        const payload = (await response.json()) as { ok: boolean; message?: string };
 
-      if (!response.ok || !payload.ok) {
-        setFeedback(payload.message ?? "Driver update failed.");
-        return;
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Driver update failed.");
+          return;
+        }
+
+        setFeedbackTone("success");
+        setFeedback("Driver updated.");
+        router.refresh();
+      } finally {
+        setPendingAction(null);
       }
-
-      setFeedback("Driver updated.");
-      router.refresh();
     });
   }
 
   function handleResetPassword() {
     startTransition(async () => {
+      setPendingAction("reset_password");
       setFeedback(null);
+      setFeedbackTone(null);
       setTemporaryPassword(null);
 
-      const response = await fetch(`/api/admin/drivers/${driver.id}/reset-password`, {
-        method: "POST",
-      });
+      try {
+        const response = await fetch(`/api/admin/drivers/${driver.id}/reset-password`, {
+          method: "POST",
+        });
 
-      const payload = (await response.json()) as {
-        ok: boolean;
-        message?: string;
-        temporaryPassword?: string;
-      };
+        const payload = (await response.json()) as {
+          ok: boolean;
+          message?: string;
+          temporaryPassword?: string;
+        };
 
-      if (!response.ok || !payload.ok) {
-        setFeedback(payload.message ?? "Password reset failed.");
-        return;
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Password reset failed.");
+          return;
+        }
+
+        setFeedbackTone("success");
+        setTemporaryPassword(payload.temporaryPassword ?? null);
+        setFeedback("Temporary password generated.");
+        router.refresh();
+      } finally {
+        setPendingAction(null);
       }
+    });
+  }
 
-      setTemporaryPassword(payload.temporaryPassword ?? null);
-      setFeedback("Temporary password generated.");
-      router.refresh();
+  function handleSendSetupEmail() {
+    startTransition(async () => {
+      setPendingAction("setup_email");
+      setFeedback(null);
+      setFeedbackTone(null);
+      setTemporaryPassword(null);
+
+      try {
+        const response = await fetch(
+          `/api/admin/drivers/${driver.id}/send-setup-email`,
+          {
+            method: "POST",
+          },
+        );
+
+        const payload = (await response.json()) as {
+          ok: boolean;
+          message?: string;
+          temporaryPassword?: string | null;
+          setupEmailSent?: boolean;
+          setupEmailFallback?: boolean;
+        };
+
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Setup email failed.");
+          return;
+        }
+
+        setFeedbackTone("success");
+        setTemporaryPassword(payload.temporaryPassword ?? null);
+
+        if (payload.setupEmailSent) {
+          setFeedback(`Setup email sent to ${driver.email}.`);
+        } else if (payload.setupEmailFallback) {
+          setFeedback(
+            `Setup email is unavailable in demo mode, so a temporary password was generated for ${driver.email}.`,
+          );
+        } else {
+          setFeedback(`Setup email sent to ${driver.email}.`);
+        }
+
+        router.refresh();
+      } finally {
+        setPendingAction(null);
+      }
     });
   }
 
@@ -136,21 +207,28 @@ export function DriverManagementCard({
     }
 
     startTransition(async () => {
+      setPendingAction("delete");
       setFeedback(null);
+      setFeedbackTone(null);
       setTemporaryPassword(null);
 
-      const response = await fetch(`/api/admin/drivers/${driver.id}`, {
-        method: "DELETE",
-      });
+      try {
+        const response = await fetch(`/api/admin/drivers/${driver.id}`, {
+          method: "DELETE",
+        });
 
-      const payload = (await response.json()) as { ok: boolean; message?: string };
+        const payload = (await response.json()) as { ok: boolean; message?: string };
 
-      if (!response.ok || !payload.ok) {
-        setFeedback(payload.message ?? "Driver delete failed.");
-        return;
+        if (!response.ok || !payload.ok) {
+          setFeedbackTone("error");
+          setFeedback(payload.message ?? "Driver delete failed.");
+          return;
+        }
+
+        router.refresh();
+      } finally {
+        setPendingAction(null);
       }
-
-      router.refresh();
     });
   }
 
@@ -204,12 +282,25 @@ export function DriverManagementCard({
           </Link>
           <button
             type="button"
+            onClick={handleSendSetupEmail}
+            className="button-secondary"
+            disabled={isPending}
+          >
+            <MailPlus className="h-4 w-4" />
+            {isPending && pendingAction === "setup_email"
+              ? "Sending..."
+              : "Send setup email"}
+          </button>
+          <button
+            type="button"
             onClick={handleResetPassword}
             className="button-secondary"
             disabled={isPending}
           >
             <KeyRound className="h-4 w-4" />
-            Reset password
+            {isPending && pendingAction === "reset_password"
+              ? "Generating..."
+              : "Generate temp password"}
           </button>
           <button
             type="button"
@@ -218,7 +309,7 @@ export function DriverManagementCard({
             disabled={isPending}
           >
             <Trash2 className="h-4 w-4" />
-            Remove driver
+            {isPending && pendingAction === "delete" ? "Removing..." : "Remove driver"}
           </button>
         </div>
       </div>
@@ -328,7 +419,7 @@ export function DriverManagementCard({
           disabled={isPending || !hasChanges}
         >
           <Save className="h-4 w-4" />
-          {isPending ? "Saving..." : "Save driver"}
+          {isPending && pendingAction === "save" ? "Saving..." : "Save driver"}
         </button>
       </div>
 
@@ -341,7 +432,15 @@ export function DriverManagementCard({
         </div>
       ) : null}
 
-      {feedback ? <p className="mt-3 text-xs text-orange-100">{feedback}</p> : null}
+      {feedback ? (
+        <p
+          className={`mt-3 text-xs ${
+            feedbackTone === "error" ? "text-rose-200" : "text-emerald-100"
+          }`}
+        >
+          {feedback}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -8,15 +8,19 @@ interface AdminLoginFormProps {
   demoMode: boolean;
   demoEmail: string;
   demoPassword: string;
+  initialEmail?: string;
+  notice?: string;
 }
 
 export function AdminLoginForm({
   demoMode,
   demoEmail,
   demoPassword,
+  initialEmail,
+  notice,
 }: AdminLoginFormProps) {
   const router = useRouter();
-  const [email, setEmail] = useState(demoEmail);
+  const [email, setEmail] = useState(initialEmail ?? demoEmail);
   const [password, setPassword] = useState(demoPassword);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -60,6 +64,12 @@ export function AdminLoginForm({
           are created inside the system.
         </p>
       </div>
+
+      {notice ? (
+        <div className="mb-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+          {notice}
+        </div>
+      ) : null}
 
       {demoMode ? (
         <div className="mb-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">

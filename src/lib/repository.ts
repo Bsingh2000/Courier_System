@@ -14,6 +14,7 @@ import {
 import {
   getAdminEmail,
   getAdminPassword,
+  getPasswordSetupUrl,
   hasSupabaseConfig,
   isDemoMode,
 } from "@/lib/env";
@@ -26,11 +27,13 @@ import {
 import {
   authenticateSupabaseIdentity,
   deleteSupabaseAuthIdentity,
+  sendSupabasePasswordSetupEmail,
   syncSupabaseAuthIdentity,
 } from "@/lib/supabase-auth";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import type {
   ActivityEntry,
+  AccountOnboardingMethod,
   AdminAccountCreateInput,
   AdminAccountRecord,
   AdminAccountUpdateInput,
@@ -1690,8 +1693,10 @@ export async function inviteClientFromInquiry(
   options?: {
     requestId?: string;
     actor?: AuditEventInput["actor"];
+    onboardingMethod?: AccountOnboardingMethod;
   },
 ) {
+  const onboardingMethod = resolveOnboardingMethod(options?.onboardingMethod);
   const temporaryPassword = generateTemporaryPassword();
 
   if (isDemoMode()) {
@@ -1748,12 +1753,17 @@ export async function inviteClientFromInquiry(
       metadata: {
         inquiryId: inquiry.id,
         email: account.email,
+        onboardingMethod,
       },
     });
 
     return {
       account: toPublicClientAccount(account),
-      temporaryPassword,
+      ...buildOnboardingResponse(
+        onboardingMethod,
+        temporaryPassword,
+        onboardingMethod === "setup_email",
+      ),
     };
   }
 
@@ -1780,6 +1790,19 @@ export async function inviteClientFromInquiry(
 
   const timestamp = nowIso();
   const clientId = crypto.randomUUID();
+  const { data: existingClient, error: existingClientError } = await supabase
+    .from("client_accounts")
+    .select("id")
+    .eq("email", inquiry.email)
+    .maybeSingle();
+
+  if (existingClientError) {
+    throw existingClientError;
+  }
+
+  if (existingClient) {
+    throw new Error("A client account already exists for this email.");
+  }
 
   await syncSupabaseAuthIdentity({
     id: clientId,
@@ -1831,6 +1854,27 @@ export async function inviteClientFromInquiry(
     throw updateError;
   }
 
+  if (onboardingMethod === "setup_email") {
+    try {
+      await sendSupabasePasswordSetupEmail(
+        inquiry.email,
+        getPasswordSetupUrl("client"),
+      );
+    } catch (error) {
+      await supabase
+        .from("business_inquiries")
+        .update({
+          invited_client_id: null,
+          status: inquiry.status,
+          updated_at: nowIso(),
+        })
+        .eq("id", id);
+      await supabase.from("client_accounts").delete().eq("id", invitedAccount.id);
+      await deleteSupabaseAuthIdentity(clientId).catch(() => undefined);
+      throw error;
+    }
+  }
+
   await supabase.from("activity_log").insert({
     title: "Client portal invitation created",
     detail: `${inquiry.businessName} can now sign in to the client portal.`,
@@ -1846,12 +1890,13 @@ export async function inviteClientFromInquiry(
     metadata: {
       inquiryId: inquiry.id,
       email: invitedAccount.email,
+      onboardingMethod,
     },
   });
 
   return {
     account: toPublicClientAccount(invitedAccount),
-    temporaryPassword,
+    ...buildOnboardingResponse(onboardingMethod, temporaryPassword),
   };
 }
 
@@ -1868,13 +1913,39 @@ function nextAdminState(current: AdminAccountRecord, updates: AdminAccountUpdate
   } satisfies AdminAccountRecord;
 }
 
+function resolveOnboardingMethod(method?: AccountOnboardingMethod) {
+  return method ?? "temporary_password";
+}
+
+function buildOnboardingResponse(
+  method: AccountOnboardingMethod,
+  temporaryPassword?: string,
+  fallbackToTemporaryPassword?: boolean,
+) {
+  const deliveredAs =
+    method === "setup_email" && fallbackToTemporaryPassword
+      ? "temporary_password"
+      : method;
+
+  return {
+    onboardingMethod: method,
+    deliveredAs,
+    setupEmailSent: deliveredAs === "setup_email",
+    setupEmailFallback: Boolean(fallbackToTemporaryPassword),
+    temporaryPassword:
+      deliveredAs === "temporary_password" ? temporaryPassword ?? null : null,
+  };
+}
+
 export async function createAdminAccount(
   input: AdminAccountCreateInput,
   options?: {
     requestId?: string;
     actor?: AuditEventInput["actor"];
+    onboardingMethod?: AccountOnboardingMethod;
   },
 ) {
+  const onboardingMethod = resolveOnboardingMethod(options?.onboardingMethod);
   const temporaryPassword = generateTemporaryPassword();
   const normalizedEmail = input.email.trim().toLowerCase();
   const timestamp = nowIso();
@@ -1917,12 +1988,17 @@ export async function createAdminAccount(
         email: account.email,
         role: account.role,
         status: account.status,
+        onboardingMethod,
       },
     });
 
     return {
       account: toPublicAdminAccount(account),
-      temporaryPassword,
+      ...buildOnboardingResponse(
+        onboardingMethod,
+        temporaryPassword,
+        onboardingMethod === "setup_email",
+      ),
     };
   }
 
@@ -1975,6 +2051,19 @@ export async function createAdminAccount(
 
   const account = mapStoredAdminAccount(data);
 
+  if (onboardingMethod === "setup_email") {
+    try {
+      await sendSupabasePasswordSetupEmail(
+        normalizedEmail,
+        getPasswordSetupUrl("admin"),
+      );
+    } catch (error) {
+      await supabase.from("admin_accounts").delete().eq("id", adminId);
+      await deleteSupabaseAuthIdentity(adminId).catch(() => undefined);
+      throw error;
+    }
+  }
+
   await supabase.from("activity_log").insert({
     title: "Admin user created",
     detail: `${account.name} was added with ${account.role} access.`,
@@ -1991,12 +2080,13 @@ export async function createAdminAccount(
       email: account.email,
       role: account.role,
       status: account.status,
+      onboardingMethod,
     },
   });
 
   return {
     account: toPublicAdminAccount(account),
-    temporaryPassword,
+    ...buildOnboardingResponse(onboardingMethod, temporaryPassword),
   };
 }
 
@@ -2290,6 +2380,90 @@ export async function resetAdminPassword(
   };
 }
 
+export async function sendAdminSetupEmail(
+  id: string,
+  options?: {
+    requestId?: string;
+    actor?: AuditEventInput["actor"];
+  },
+) {
+  if (isDemoMode()) {
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const store = getDemoStore();
+    const account = store.adminAccounts.find((item) => item.id === id);
+
+    if (!account) {
+      return null;
+    }
+
+    account.passwordHash = passwordHash;
+    account.updatedAt = nowIso();
+    logActivity(store, "Admin setup email fallback", `${account.name} received a demo-only temporary password instead of an email link.`);
+    addAuditEventToDemoStore(store, {
+      requestId: options?.requestId,
+      entityType: "admin_account",
+      entityId: account.id,
+      action: "admin_account.setup_email_fallback",
+      summary: `${account.name} was issued a demo-only temporary password because setup emails are unavailable in demo mode.`,
+      actor: options?.actor ?? { type: "system", label: "system" },
+    });
+
+    return {
+      account: toPublicAdminAccount(account),
+      ...buildOnboardingResponse("setup_email", temporaryPassword, true),
+    };
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("admin_accounts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const account = mapStoredAdminAccount(data);
+
+  await syncSupabaseAuthIdentity({
+    id,
+    email: account.email,
+    createPassword: generateTemporaryPassword(),
+    kind: "admin",
+    name: account.name,
+    role: account.role,
+    status: account.status,
+  });
+
+  await sendSupabasePasswordSetupEmail(account.email, getPasswordSetupUrl("admin"));
+
+  await supabase.from("activity_log").insert({
+    title: "Admin setup email sent",
+    detail: `${account.name} received a password setup email.`,
+  });
+
+  await recordAuditEvent({
+    requestId: options?.requestId,
+    entityType: "admin_account",
+    entityId: id,
+    action: "admin_account.setup_email_sent",
+    summary: `${account.name} received a password setup email.`,
+    actor: options?.actor ?? { type: "system", label: "system" },
+  });
+
+  return {
+    account: toPublicAdminAccount(account),
+    ...buildOnboardingResponse("setup_email"),
+  };
+}
+
 export async function deleteAdminAccount(
   id: string,
   options?: {
@@ -2404,8 +2578,10 @@ export async function createClientAccount(
   options?: {
     requestId?: string;
     actor?: AuditEventInput["actor"];
+    onboardingMethod?: AccountOnboardingMethod;
   },
 ) {
+  const onboardingMethod = resolveOnboardingMethod(options?.onboardingMethod);
   const temporaryPassword = generateTemporaryPassword();
   const normalizedEmail = input.email.trim().toLowerCase();
 
@@ -2452,12 +2628,17 @@ export async function createClientAccount(
         email: account.email,
         status: account.status,
         source: "admin_direct_create",
+        onboardingMethod,
       },
     });
 
     return {
       account: toPublicClientAccount(account),
-      temporaryPassword,
+      ...buildOnboardingResponse(
+        onboardingMethod,
+        temporaryPassword,
+        onboardingMethod === "setup_email",
+      ),
     };
   }
 
@@ -2512,6 +2693,19 @@ export async function createClientAccount(
 
   const account = mapStoredClientAccount(data);
 
+  if (onboardingMethod === "setup_email") {
+    try {
+      await sendSupabasePasswordSetupEmail(
+        normalizedEmail,
+        getPasswordSetupUrl("client"),
+      );
+    } catch (error) {
+      await supabase.from("client_accounts").delete().eq("id", clientId);
+      await deleteSupabaseAuthIdentity(clientId).catch(() => undefined);
+      throw error;
+    }
+  }
+
   await supabase.from("activity_log").insert({
     title: "Client account created",
     detail: `${account.businessName} was added directly to the client portal.`,
@@ -2528,12 +2722,13 @@ export async function createClientAccount(
       email: account.email,
       status: account.status,
       source: "admin_direct_create",
+      onboardingMethod,
     },
   });
 
   return {
     account: toPublicClientAccount(account),
-    temporaryPassword,
+    ...buildOnboardingResponse(onboardingMethod, temporaryPassword),
   };
 }
 
@@ -2542,8 +2737,10 @@ export async function createDriverAccount(
   options?: {
     requestId?: string;
     actor?: AuditEventInput["actor"];
+    onboardingMethod?: AccountOnboardingMethod;
   },
 ) {
+  const onboardingMethod = resolveOnboardingMethod(options?.onboardingMethod);
   const temporaryPassword = generateTemporaryPassword();
   const normalizedEmail = input.email.trim().toLowerCase();
 
@@ -2587,12 +2784,17 @@ export async function createDriverAccount(
       metadata: {
         zone: driver.zone,
         email: driver.email,
+        onboardingMethod,
       },
     });
 
     return {
       driver: toPublicDriverAccount(driver),
-      temporaryPassword,
+      ...buildOnboardingResponse(
+        onboardingMethod,
+        temporaryPassword,
+        onboardingMethod === "setup_email",
+      ),
     };
   }
 
@@ -2649,6 +2851,19 @@ export async function createDriverAccount(
     throw error;
   }
 
+  if (onboardingMethod === "setup_email") {
+    try {
+      await sendSupabasePasswordSetupEmail(
+        normalizedEmail,
+        getPasswordSetupUrl("driver"),
+      );
+    } catch (error) {
+      await supabase.from("drivers").delete().eq("id", driverId);
+      await deleteSupabaseAuthIdentity(driverId).catch(() => undefined);
+      throw error;
+    }
+  }
+
   await supabase.from("activity_log").insert({
     title: "Driver added",
     detail: `${input.name} was added to the ${input.zone} route.`,
@@ -2664,12 +2879,13 @@ export async function createDriverAccount(
     metadata: {
       zone: input.zone,
       email: normalizedEmail,
+      onboardingMethod,
     },
   });
 
   return {
     driver: toPublicDriverAccount(mapStoredDriver(data)),
-    temporaryPassword,
+    ...buildOnboardingResponse(onboardingMethod, temporaryPassword),
   };
 }
 
@@ -2931,6 +3147,91 @@ export async function resetDriverPassword(
   return {
     driver: toPublicDriverAccount(driver),
     temporaryPassword,
+  };
+}
+
+export async function sendDriverSetupEmail(
+  id: string,
+  options?: {
+    requestId?: string;
+    actor?: AuditEventInput["actor"];
+  },
+) {
+  if (isDemoMode()) {
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const store = getDemoStore();
+    const driver = store.drivers.find((item) => item.id === id);
+
+    if (!driver) {
+      return null;
+    }
+
+    driver.passwordHash = passwordHash;
+    logActivity(store, "Driver setup email fallback", `${driver.name} received a demo-only temporary password instead of an email link.`);
+    addAuditEventToDemoStore(store, {
+      requestId: options?.requestId,
+      entityType: "driver",
+      entityId: driver.id,
+      action: "driver.setup_email_fallback",
+      summary: `${driver.name} was issued a demo-only temporary password because setup emails are unavailable in demo mode.`,
+      actor: options?.actor ?? { type: "system", label: "system" },
+    });
+
+    return {
+      driver: toPublicDriverAccount(driver),
+      ...buildOnboardingResponse("setup_email", temporaryPassword, true),
+    };
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("drivers")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const driver = mapStoredDriver(data);
+
+  await syncSupabaseAuthIdentity({
+    id,
+    email: driver.email,
+    createPassword: generateTemporaryPassword(),
+    kind: "driver",
+    name: driver.name,
+    phone: driver.phone,
+    status: driver.accessStatus,
+    zone: driver.zone,
+    currentRun: driver.currentRun,
+  });
+
+  await sendSupabasePasswordSetupEmail(driver.email, getPasswordSetupUrl("driver"));
+
+  await supabase.from("activity_log").insert({
+    title: "Driver setup email sent",
+    detail: `${driver.name} received a password setup email.`,
+  });
+
+  await recordAuditEvent({
+    requestId: options?.requestId,
+    entityType: "driver",
+    entityId: id,
+    action: "driver.setup_email_sent",
+    summary: `${driver.name} received a password setup email.`,
+    actor: options?.actor ?? { type: "system", label: "system" },
+  });
+
+  return {
+    driver: toPublicDriverAccount(driver),
+    ...buildOnboardingResponse("setup_email"),
   };
 }
 
@@ -3274,6 +3575,91 @@ export async function resetClientPassword(
   return {
     account: toPublicClientAccount(account),
     temporaryPassword,
+  };
+}
+
+export async function sendClientSetupEmail(
+  id: string,
+  options?: {
+    requestId?: string;
+    actor?: AuditEventInput["actor"];
+  },
+) {
+  if (isDemoMode()) {
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const store = getDemoStore();
+    const account = store.clientAccounts.find((item) => item.id === id);
+
+    if (!account) {
+      return null;
+    }
+
+    account.passwordHash = passwordHash;
+    account.updatedAt = nowIso();
+    logActivity(store, "Client setup email fallback", `${account.businessName} received a demo-only temporary password instead of an email link.`);
+    addAuditEventToDemoStore(store, {
+      requestId: options?.requestId,
+      entityType: "client_account",
+      entityId: account.id,
+      action: "client_account.setup_email_fallback",
+      summary: `${account.businessName} was issued a demo-only temporary password because setup emails are unavailable in demo mode.`,
+      actor: options?.actor ?? { type: "system", label: "system" },
+    });
+
+    return {
+      account: toPublicClientAccount(account),
+      ...buildOnboardingResponse("setup_email", temporaryPassword, true),
+    };
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("client_accounts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const account = mapStoredClientAccount(data);
+
+  await syncSupabaseAuthIdentity({
+    id,
+    email: account.email,
+    createPassword: generateTemporaryPassword(),
+    kind: "client",
+    contactName: account.contactName,
+    businessName: account.businessName,
+    phone: account.phone,
+    status: account.status,
+  });
+
+  await sendSupabasePasswordSetupEmail(account.email, getPasswordSetupUrl("client"));
+
+  await supabase.from("activity_log").insert({
+    title: "Client setup email sent",
+    detail: `${account.businessName} received a password setup email.`,
+  });
+
+  await recordAuditEvent({
+    requestId: options?.requestId,
+    entityType: "client_account",
+    entityId: id,
+    action: "client_account.setup_email_sent",
+    summary: `${account.businessName} received a password setup email.`,
+    actor: options?.actor ?? { type: "system", label: "system" },
+  });
+
+  return {
+    account: toPublicClientAccount(account),
+    ...buildOnboardingResponse("setup_email"),
   };
 }
 

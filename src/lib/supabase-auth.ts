@@ -11,6 +11,7 @@ type SupabaseIdentityInput = {
   email: string;
   kind: ManagedAccountKind;
   password?: string;
+  createPassword?: string;
   requireExisting?: boolean;
   name?: string;
   contactName?: string;
@@ -144,7 +145,9 @@ export async function syncSupabaseAuthIdentity(input: SupabaseIdentityInput) {
     throw updateError;
   }
 
-  if (!input.password) {
+  const createPassword = input.password ?? input.createPassword;
+
+  if (!createPassword) {
     if (input.requireExisting) {
       throw new Error(`Supabase Auth user for ${input.email} is missing.`);
     }
@@ -155,7 +158,7 @@ export async function syncSupabaseAuthIdentity(input: SupabaseIdentityInput) {
   const { data: created, error: createError } = await supabase.auth.admin.createUser({
     id: input.id,
     email: input.email,
-    password: input.password,
+    password: createPassword,
     email_confirm: true,
     app_metadata: buildAppMetadata(input),
     user_metadata: buildUserMetadata(input),
@@ -170,6 +173,17 @@ export async function syncSupabaseAuthIdentity(input: SupabaseIdentityInput) {
   }
 
   return created.user;
+}
+
+export async function sendSupabasePasswordSetupEmail(email: string, redirectTo: string) {
+  const supabase = createSupabaseAuthClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function deleteSupabaseAuthIdentity(id: string) {

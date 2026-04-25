@@ -1,21 +1,27 @@
 import { NextResponse } from "next/server";
 
 import { requireAdminSession } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/errors";
 import {
   inviteClientFromInquiry,
   recordAuditEvent,
 } from "@/lib/repository";
+import { inquiryInviteRequestSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const requestId = crypto.randomUUID();
 
   try {
     const session = await requireAdminSession();
+    const rawBody = await request.text();
+    const payload = rawBody
+      ? inquiryInviteRequestSchema.parse(JSON.parse(rawBody))
+      : { onboardingMethod: "temporary_password" as const };
     const { id } = await params;
     const invitation = await inviteClientFromInquiry(id, {
       requestId,
@@ -24,6 +30,7 @@ export async function POST(
         id: session.adminId,
         label: session.email,
       },
+      onboardingMethod: payload.onboardingMethod,
     });
 
     if (!invitation) {
@@ -37,9 +44,12 @@ export async function POST(
       ok: true,
       account: invitation.account,
       temporaryPassword: invitation.temporaryPassword,
+      setupEmailSent: invitation.setupEmailSent,
+      setupEmailFallback: invitation.setupEmailFallback,
+      deliveredAs: invitation.deliveredAs,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invitation failed.";
+    const message = getErrorMessage(error, "Invitation failed.");
     const status = message === "UNAUTHORIZED" ? 401 : 400;
     const { id } = await params;
 
