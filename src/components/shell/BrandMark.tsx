@@ -10,7 +10,7 @@ export function BrandMark() {
         <p className="font-mono text-[11px] uppercase tracking-[0.26em] text-orange-200/90">
           RouteGrid
         </p>
-        <p className="text-sm font-semibold text-[var(--foreground)] sm:text-base">
+        <p className="whitespace-nowrap text-sm font-semibold text-[var(--foreground)] sm:text-base">
           Courier Operations
         </p>
       </div>

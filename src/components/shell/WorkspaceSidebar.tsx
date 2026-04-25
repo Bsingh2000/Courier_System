@@ -82,11 +82,18 @@ export function WorkspaceSidebar({
   return (
     <>
       <div className="workspace-mobile-bar panel-strong xl:hidden">
-        <div className="flex items-center justify-between gap-3">
+        <div
+          className={cn(
+            "flex justify-between gap-3",
+            mobileHeaderMode === "brand_only" ? "relative items-center" : "items-center",
+          )}
+        >
           <div
             className={cn(
               "min-w-0 flex-1",
-              mobileHeaderMode === "brand_only" ? "flex items-center" : "space-y-4",
+              mobileHeaderMode === "brand_only"
+                ? "flex items-center pr-32"
+                : "space-y-4",
             )}
           >
             <div>{brand}</div>
@@ -105,8 +112,10 @@ export function WorkspaceSidebar({
 
           <div
             className={cn(
-              "flex shrink-0 items-center gap-2 self-center",
-              mobileHeaderMode === "brand_only" && "pr-16 sm:pr-0",
+              "flex shrink-0 items-center gap-2",
+              mobileHeaderMode === "brand_only"
+                ? "absolute right-3 top-1/2 -translate-y-1/2"
+                : "self-center",
             )}
           >
             {quickAction ? (
