@@ -227,7 +227,7 @@ export function DriverCreateForm() {
             <KeyRound className="h-4 w-4" />
             Temporary password
           </p>
-          <p className="mt-2 font-mono text-xs uppercase tracking-[0.24em]">
+          <p className="mt-2 font-mono text-xs tracking-[0.24em]">
             {temporaryPassword}
           </p>
         </div>

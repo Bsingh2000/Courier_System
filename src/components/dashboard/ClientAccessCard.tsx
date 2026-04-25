@@ -206,7 +206,7 @@ export function ClientAccessCard({
       {temporaryPassword ? (
         <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
           <p className="font-semibold text-white">Temporary password</p>
-          <p className="mt-2 font-mono text-xs uppercase tracking-[0.24em]">
+          <p className="mt-2 font-mono text-xs tracking-[0.24em]">
             {temporaryPassword}
           </p>
         </div>

@@ -57,6 +57,7 @@ export default async function DriverLayout({
           href: "/driver/stops",
           label: "Stops",
         }}
+        compactMobileHeader
         footer={
           <>
             <div>

@@ -132,7 +132,7 @@ export function InquiryActionCard({ inquiry }: InquiryActionCardProps) {
           {temporaryPassword ? (
             <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-100">
               Temporary password:
-              <span className="ml-2 font-mono text-xs uppercase tracking-[0.2em]">
+              <span className="ml-2 font-mono text-xs tracking-[0.2em]">
                 {temporaryPassword}
               </span>
             </div>

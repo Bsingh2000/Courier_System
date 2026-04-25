@@ -188,7 +188,7 @@ export function AdminCreateForm() {
               <p className="mt-2 text-[var(--foreground)]">
                 {createdEmail ? `${createdEmail} can sign in with this password.` : null}
               </p>
-              <p className="mt-3 font-mono text-xs uppercase tracking-[0.24em]">
+              <p className="mt-3 font-mono text-xs tracking-[0.24em]">
                 {temporaryPassword}
               </p>
             </div>
