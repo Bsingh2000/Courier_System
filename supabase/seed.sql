@@ -3,6 +3,7 @@ insert into public.admin_accounts (
   email,
   role,
   status,
+  must_change_password,
   password_hash,
   created_by_label
 )
@@ -12,6 +13,7 @@ values
     'admin@routegrid.local',
     'owner',
     'active',
+    false,
     'scrypt:33c0727e50dd98a2da727a1fa3b7fc31:0e9b49b79912f93db67868ac5ca0e73efbb3272b65afb76a23ae97d6b490f8b8ccf91155903ce9d1093b6d9ce7428395ca54e7bc29c8df4060760205777028df',
     'seed'
   )
@@ -20,6 +22,7 @@ set
   name = excluded.name,
   role = excluded.role,
   status = excluded.status,
+  must_change_password = excluded.must_change_password,
   password_hash = excluded.password_hash,
   created_by_label = excluded.created_by_label;
 
@@ -30,6 +33,7 @@ insert into public.client_accounts (
   phone,
   business_address,
   status,
+  must_change_password,
   password_hash
 )
 values
@@ -40,6 +44,7 @@ values
     '(868) 622-9087',
     '34 Wrightson Road, Port of Spain',
     'active',
+    false,
     'scrypt:01010101010101010101010101010101:dad0e57b8b21e62e2bc0c421a2e30f0215a33cc9195ab74c960e7591bbf0e56b2a6f85f9dd87518812724c9769313d1507a2629b72147b323a06d9cda83fcd3f'
   ),
   (
@@ -49,6 +54,7 @@ values
     '(868) 760-4041',
     '58 Independence Square, Port of Spain',
     'active',
+    false,
     'scrypt:01010101010101010101010101010101:dad0e57b8b21e62e2bc0c421a2e30f0215a33cc9195ab74c960e7591bbf0e56b2a6f85f9dd87518812724c9769313d1507a2629b72147b323a06d9cda83fcd3f'
   )
 on conflict (email) do update
@@ -58,6 +64,7 @@ set
   phone = excluded.phone,
   business_address = excluded.business_address,
   status = excluded.status,
+  must_change_password = excluded.must_change_password,
   password_hash = excluded.password_hash;
 
 insert into public.business_inquiries (
@@ -97,6 +104,7 @@ insert into public.drivers (
   zone,
   status,
   access_status,
+  must_change_password,
   password_hash,
   current_run,
   today_deliveries,
@@ -111,6 +119,7 @@ values
     'east',
     'available',
     'active',
+    false,
     'scrypt:75caebc761da0424601b9b8b6113d00d:31e7263a7e1c12f1956a133eeac36412e7ae3ed1fe242db37d728386a457a2af93e370344552d26babdfe4900399579883ed641bcaab48be739b6bc702414073',
     'Arima / Sangre Grande',
     0,
@@ -124,6 +133,7 @@ values
     'west',
     'available',
     'active',
+    false,
     'scrypt:75caebc761da0424601b9b8b6113d00d:31e7263a7e1c12f1956a133eeac36412e7ae3ed1fe242db37d728386a457a2af93e370344552d26babdfe4900399579883ed641bcaab48be739b6bc702414073',
     'Port of Spain urban loop',
     0,
@@ -137,6 +147,7 @@ values
     'north',
     'available',
     'active',
+    false,
     'scrypt:75caebc761da0424601b9b8b6113d00d:31e7263a7e1c12f1956a133eeac36412e7ae3ed1fe242db37d728386a457a2af93e370344552d26babdfe4900399579883ed641bcaab48be739b6bc702414073',
     'Tunapuna / St. Augustine',
     0,
@@ -150,6 +161,7 @@ values
     'south',
     'available',
     'active',
+    false,
     'scrypt:75caebc761da0424601b9b8b6113d00d:31e7263a7e1c12f1956a133eeac36412e7ae3ed1fe242db37d728386a457a2af93e370344552d26babdfe4900399579883ed641bcaab48be739b6bc702414073',
     'San Fernando / Penal',
     0,
@@ -163,6 +175,7 @@ set
   zone = excluded.zone,
   status = excluded.status,
   access_status = excluded.access_status,
+  must_change_password = excluded.must_change_password,
   password_hash = excluded.password_hash,
   current_run = excluded.current_run,
   last_login_at = excluded.last_login_at;

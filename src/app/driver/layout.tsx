@@ -63,8 +63,11 @@ export default async function DriverLayout({
             <div>
               <p className="section-label">Signed in</p>
               <p className="mt-2 text-sm text-white">{driver.name}</p>
+              <p className="mt-1 text-xs text-[var(--muted)] [overflow-wrap:anywhere]">
+                {driver.email}
+              </p>
               <p className="mt-1 text-xs text-[var(--muted)]">
-                {driver.email} / {isDemoMode() ? "Demo mode" : "Live mode"}
+                {isDemoMode() ? "Demo mode" : "Live mode"}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <span className={`chip ${operationalTone}`}>

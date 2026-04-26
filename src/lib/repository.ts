@@ -65,6 +65,7 @@ import type {
   InventoryItemInput,
   InventoryItem,
   PaymentStatus,
+  PasswordSetupAccountType,
   PriorityLevel,
   ZoneSummary,
 } from "@/lib/types";
@@ -91,6 +92,23 @@ type DemoStore = {
   inquiries: BusinessInquiryRecord[];
   clientAccounts: StoredClientAccount[];
 };
+
+type PasswordChangeRequiredResult = {
+  requiresPasswordChange: true;
+  accountId: string;
+  accountType: PasswordSetupAccountType;
+  email: string;
+};
+
+type AuthenticatedAdminResult =
+  | {
+      account: AdminAccountRecord;
+      source: "account" | "bootstrap";
+    }
+  | PasswordChangeRequiredResult;
+
+type AuthenticatedClientResult = ClientAccountRecord | PasswordChangeRequiredResult;
+type AuthenticatedDriverResult = DriverRecord | PasswordChangeRequiredResult;
 
 declare global {
   var __routegridDemoStore: DemoStore | undefined;
@@ -136,6 +154,8 @@ function ensureDemoStoreShape(store?: Partial<DemoStore>): DemoStore {
             email: account.email ?? fallback?.email ?? "",
             role: account.role ?? fallback?.role ?? "admin",
             status: account.status ?? fallback?.status ?? "active",
+            mustChangePassword:
+              account.mustChangePassword ?? fallback?.mustChangePassword ?? false,
             passwordHash:
               account.passwordHash ?? fallback?.passwordHash ?? hashPasswordSync("dispatch123"),
           } satisfies StoredAdminAccount;
@@ -151,6 +171,8 @@ function ensureDemoStoreShape(store?: Partial<DemoStore>): DemoStore {
             email: driver.email ?? fallback?.email ?? "",
             accessStatus: driver.accessStatus ?? fallback?.accessStatus ?? "active",
             currentRun: driver.currentRun ?? fallback?.currentRun ?? "Route planning",
+            mustChangePassword:
+              driver.mustChangePassword ?? fallback?.mustChangePassword ?? false,
             passwordHash:
               driver.passwordHash ?? fallback?.passwordHash ?? hashPasswordSync("driver123"),
           } satisfies StoredDriverRecord;
@@ -169,6 +191,8 @@ function ensureDemoStoreShape(store?: Partial<DemoStore>): DemoStore {
             ...account,
             email: account.email ?? fallback?.email ?? "",
             status: account.status ?? fallback?.status ?? "active",
+            mustChangePassword:
+              account.mustChangePassword ?? fallback?.mustChangePassword ?? false,
             passwordHash:
               account.passwordHash ?? fallback?.passwordHash ?? hashPasswordSync("client123"),
           } satisfies StoredClientAccount;
@@ -197,6 +221,19 @@ function trackCode() {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function buildPasswordChangeRequiredResult(
+  accountType: PasswordSetupAccountType,
+  accountId: string,
+  email: string,
+): PasswordChangeRequiredResult {
+  return {
+    requiresPasswordChange: true,
+    accountId,
+    accountType,
+    email,
+  };
 }
 
 function toNumber(value: unknown) {
@@ -307,6 +344,7 @@ function mapStoredAdminAccount(row: AdminAccountRow): StoredAdminAccount {
     email: toStringValue(row.email),
     role: toStringValue(row.role) as AdminAccountRecord["role"],
     status: toStringValue(row.status) as AdminAccountRecord["status"],
+    mustChangePassword: Boolean(row.must_change_password),
     lastLoginAt: toNullableString(row.last_login_at),
     createdByAdminId: toNullableString(row.created_by_admin_id),
     createdByLabel: toNullableString(row.created_by_label),
@@ -328,6 +366,7 @@ function mapDriver(row: DriverRow): DriverRecord {
     currentRun: toStringValue(row.current_run),
     todayDeliveries: toNumber(row.today_deliveries),
     cashOnHand: toNumber(row.cash_on_hand),
+    mustChangePassword: Boolean(row.must_change_password),
     lastLoginAt: toNullableString(row.last_login_at),
   };
 }
@@ -407,6 +446,7 @@ function mapStoredClientAccount(row: ClientAccountRow): StoredClientAccount {
     phone: toStringValue(row.phone),
     businessAddress: toStringValue(row.business_address),
     status: toStringValue(row.status) as ClientAccountRecord["status"],
+    mustChangePassword: Boolean(row.must_change_password),
     lastLoginAt: toNullableString(row.last_login_at),
     createdAt: toStringValue(row.created_at),
     updatedAt: toStringValue(row.updated_at),
@@ -1147,11 +1187,6 @@ export async function getDriverDetailSnapshot(driverId: string) {
   };
 }
 
-export interface AuthenticatedAdmin {
-  account: AdminAccountRecord;
-  source: "account" | "bootstrap";
-}
-
 function createBootstrapAdminAccount(): AdminAccountRecord {
   const timestamp = nowIso();
 
@@ -1170,7 +1205,7 @@ function createBootstrapAdminAccount(): AdminAccountRecord {
 export async function authenticateAdmin(
   email: string,
   password: string,
-): Promise<AuthenticatedAdmin | null> {
+): Promise<AuthenticatedAdminResult | null> {
   const normalizedEmail = email.trim().toLowerCase();
   const bootstrapEmail = getAdminEmail().trim().toLowerCase();
   const bootstrapPassword = getAdminPassword();
@@ -1185,6 +1220,10 @@ export async function authenticateAdmin(
       const validPassword = await verifyPassword(password, account.passwordHash);
 
       if (validPassword) {
+        if (account.mustChangePassword) {
+          return buildPasswordChangeRequiredResult("admin", account.id, account.email);
+        }
+
         const timestamp = nowIso();
         account.lastLoginAt = timestamp;
         account.updatedAt = timestamp;
@@ -1224,6 +1263,10 @@ export async function authenticateAdmin(
       const authUser = await authenticateSupabaseIdentity(account.id, account.email, password);
 
       if (authUser) {
+        if (account.mustChangePassword) {
+          return buildPasswordChangeRequiredResult("admin", account.id, account.email);
+        }
+
         const timestamp = nowIso();
         const updatePayload: Record<string, unknown> = {
           last_login_at: timestamp,
@@ -1250,6 +1293,20 @@ export async function authenticateAdmin(
         const validPassword = await verifyPassword(password, account.passwordHash);
 
         if (validPassword) {
+          if (account.mustChangePassword) {
+            await syncSupabaseAuthIdentity({
+              id: account.id,
+              email: account.email,
+              password,
+              kind: "admin",
+              name: account.name,
+              role: account.role,
+              status: account.status,
+            });
+
+            return buildPasswordChangeRequiredResult("admin", account.id, account.email);
+          }
+
           await syncSupabaseAuthIdentity({
             id: account.id,
             email: account.email,
@@ -1293,7 +1350,10 @@ export async function authenticateAdmin(
   return null;
 }
 
-export async function authenticateClient(email: string, password: string) {
+export async function authenticateClient(
+  email: string,
+  password: string,
+): Promise<AuthenticatedClientResult | null> {
   const normalizedEmail = email.trim().toLowerCase();
 
   if (isDemoMode()) {
@@ -1310,6 +1370,10 @@ export async function authenticateClient(email: string, password: string) {
 
     if (!validPassword) {
       return null;
+    }
+
+    if (account.mustChangePassword) {
+      return buildPasswordChangeRequiredResult("client", account.id, account.email);
     }
 
     account.lastLoginAt = nowIso();
@@ -1341,6 +1405,10 @@ export async function authenticateClient(email: string, password: string) {
   const authUser = await authenticateSupabaseIdentity(account.id, account.email, password);
 
   if (authUser) {
+    if (account.mustChangePassword) {
+      return buildPasswordChangeRequiredResult("client", account.id, account.email);
+    }
+
     const lastLoginAt = nowIso();
     const updatePayload: Record<string, unknown> = {
       last_login_at: lastLoginAt,
@@ -1367,6 +1435,21 @@ export async function authenticateClient(email: string, password: string) {
 
   if (!validPassword) {
     return null;
+  }
+
+  if (account.mustChangePassword) {
+    await syncSupabaseAuthIdentity({
+      id: account.id,
+      email: account.email,
+      password,
+      kind: "client",
+      contactName: account.contactName,
+      businessName: account.businessName,
+      phone: account.phone,
+      status: account.status,
+    });
+
+    return buildPasswordChangeRequiredResult("client", account.id, account.email);
   }
 
   await syncSupabaseAuthIdentity({
@@ -1396,7 +1479,10 @@ export async function authenticateClient(email: string, password: string) {
   return toPublicClientAccount(account);
 }
 
-export async function authenticateDriver(email: string, password: string) {
+export async function authenticateDriver(
+  email: string,
+  password: string,
+): Promise<AuthenticatedDriverResult | null> {
   const normalizedEmail = email.trim().toLowerCase();
 
   if (isDemoMode()) {
@@ -1417,6 +1503,10 @@ export async function authenticateDriver(email: string, password: string) {
 
     if (!validPassword) {
       return null;
+    }
+
+    if (driver.mustChangePassword) {
+      return buildPasswordChangeRequiredResult("driver", driver.id, driver.email);
     }
 
     driver.lastLoginAt = nowIso();
@@ -1447,6 +1537,10 @@ export async function authenticateDriver(email: string, password: string) {
   const authUser = await authenticateSupabaseIdentity(driver.id, driver.email, password);
 
   if (authUser) {
+    if (driver.mustChangePassword) {
+      return buildPasswordChangeRequiredResult("driver", driver.id, driver.email);
+    }
+
     const lastLoginAt = nowIso();
     const updatePayload: Record<string, unknown> = {
       last_login_at: lastLoginAt,
@@ -1474,6 +1568,22 @@ export async function authenticateDriver(email: string, password: string) {
     return null;
   }
 
+  if (driver.mustChangePassword) {
+    await syncSupabaseAuthIdentity({
+      id: driver.id,
+      email: driver.email,
+      password,
+      kind: "driver",
+      name: driver.name,
+      phone: driver.phone,
+      status: driver.accessStatus,
+      zone: driver.zone,
+      currentRun: driver.currentRun,
+    });
+
+    return buildPasswordChangeRequiredResult("driver", driver.id, driver.email);
+  }
+
   await syncSupabaseAuthIdentity({
     id: driver.id,
     email: driver.email,
@@ -1499,6 +1609,333 @@ export async function authenticateDriver(email: string, password: string) {
   driver.lastLoginAt = lastLoginAt;
   driver.passwordHash = undefined;
   return toPublicDriverAccount(driver);
+}
+
+export async function completeFirstLoginPasswordSetup(
+  accountType: PasswordSetupAccountType,
+  accountId: string,
+  password: string,
+  options?: { requestId?: string },
+) {
+  const timestamp = nowIso();
+
+  if (accountType === "admin") {
+    if (isDemoMode()) {
+      const store = getDemoStore();
+      const account = store.adminAccounts.find((item) => item.id === accountId);
+
+      if (!account) {
+        return null;
+      }
+
+      if (account.status !== "active") {
+        throw new Error("Only active admin accounts can finish password setup.");
+      }
+
+      if (!account.mustChangePassword) {
+        throw new Error("Password setup is no longer required for this account.");
+      }
+
+      account.passwordHash = await hashPassword(password);
+      account.mustChangePassword = false;
+      account.updatedAt = timestamp;
+      addAuditEventToDemoStore(store, {
+        requestId: options?.requestId,
+        entityType: "admin_account",
+        entityId: account.id,
+        action: "admin_account.first_login_password_completed",
+        summary: `${account.name} set a permanent password before first access.`,
+        actor: {
+          type: "admin",
+          id: account.id,
+          label: account.email,
+        },
+      });
+
+      return {
+        accountType,
+        email: account.email,
+      };
+    }
+
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("admin_accounts")
+      .select("*")
+      .eq("id", accountId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    const account = mapStoredAdminAccount(data);
+
+    if (account.status !== "active") {
+      throw new Error("Only active admin accounts can finish password setup.");
+    }
+
+    if (!account.mustChangePassword) {
+      throw new Error("Password setup is no longer required for this account.");
+    }
+
+    await syncSupabaseAuthIdentity({
+      id: account.id,
+      email: account.email,
+      password,
+      kind: "admin",
+      name: account.name,
+      role: account.role,
+      status: account.status,
+    });
+
+    const { error: updateError } = await supabase
+      .from("admin_accounts")
+      .update({
+        must_change_password: false,
+        password_hash: null,
+        updated_at: timestamp,
+      })
+      .eq("id", account.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    await recordAuditEvent({
+      requestId: options?.requestId,
+      entityType: "admin_account",
+      entityId: account.id,
+      action: "admin_account.first_login_password_completed",
+      summary: `${account.name} set a permanent password before first access.`,
+      actor: {
+        type: "admin",
+        id: account.id,
+        label: account.email,
+      },
+    });
+
+    return {
+      accountType,
+      email: account.email,
+    };
+  }
+
+  if (accountType === "client") {
+    if (isDemoMode()) {
+      const store = getDemoStore();
+      const account = store.clientAccounts.find((item) => item.id === accountId);
+
+      if (!account) {
+        return null;
+      }
+
+      if (account.status !== "active") {
+        throw new Error("Only active client accounts can finish password setup.");
+      }
+
+      if (!account.mustChangePassword) {
+        throw new Error("Password setup is no longer required for this account.");
+      }
+
+      account.passwordHash = await hashPassword(password);
+      account.mustChangePassword = false;
+      account.updatedAt = timestamp;
+      addAuditEventToDemoStore(store, {
+        requestId: options?.requestId,
+        entityType: "client_account",
+        entityId: account.id,
+        action: "client_account.first_login_password_completed",
+        summary: `${account.businessName} set a permanent password before first access.`,
+        actor: {
+          type: "client",
+          id: account.id,
+          label: account.email,
+        },
+      });
+
+      return {
+        accountType,
+        email: account.email,
+      };
+    }
+
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("client_accounts")
+      .select("*")
+      .eq("id", accountId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    const account = mapStoredClientAccount(data);
+
+    if (account.status !== "active") {
+      throw new Error("Only active client accounts can finish password setup.");
+    }
+
+    if (!account.mustChangePassword) {
+      throw new Error("Password setup is no longer required for this account.");
+    }
+
+    await syncSupabaseAuthIdentity({
+      id: account.id,
+      email: account.email,
+      password,
+      kind: "client",
+      contactName: account.contactName,
+      businessName: account.businessName,
+      phone: account.phone,
+      status: account.status,
+    });
+
+    const { error: updateError } = await supabase
+      .from("client_accounts")
+      .update({
+        must_change_password: false,
+        password_hash: null,
+        updated_at: timestamp,
+      })
+      .eq("id", account.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    await recordAuditEvent({
+      requestId: options?.requestId,
+      entityType: "client_account",
+      entityId: account.id,
+      action: "client_account.first_login_password_completed",
+      summary: `${account.businessName} set a permanent password before first access.`,
+      actor: {
+        type: "client",
+        id: account.id,
+        label: account.email,
+      },
+    });
+
+    return {
+      accountType,
+      email: account.email,
+    };
+  }
+
+  if (isDemoMode()) {
+    const store = getDemoStore();
+    const driver = store.drivers.find((item) => item.id === accountId);
+
+    if (!driver) {
+      return null;
+    }
+
+    if (driver.accessStatus !== "active") {
+      throw new Error("Only active drivers can finish password setup.");
+    }
+
+    if (!driver.mustChangePassword) {
+      throw new Error("Password setup is no longer required for this account.");
+    }
+
+    driver.passwordHash = await hashPassword(password);
+    driver.mustChangePassword = false;
+    addAuditEventToDemoStore(store, {
+      requestId: options?.requestId,
+      entityType: "driver",
+      entityId: driver.id,
+      action: "driver.first_login_password_completed",
+      summary: `${driver.name} set a permanent password before first access.`,
+      actor: {
+        type: "driver",
+        id: driver.id,
+        label: driver.email,
+      },
+    });
+
+    return {
+      accountType,
+      email: driver.email,
+    };
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("drivers")
+    .select("*")
+    .eq("id", accountId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const driver = mapStoredDriver(data);
+
+  if (driver.accessStatus !== "active") {
+    throw new Error("Only active drivers can finish password setup.");
+  }
+
+  if (!driver.mustChangePassword) {
+    throw new Error("Password setup is no longer required for this account.");
+  }
+
+  await syncSupabaseAuthIdentity({
+    id: driver.id,
+    email: driver.email,
+    password,
+    kind: "driver",
+    name: driver.name,
+    phone: driver.phone,
+    status: driver.accessStatus,
+    zone: driver.zone,
+    currentRun: driver.currentRun,
+  });
+
+  const { error: updateError } = await supabase
+    .from("drivers")
+    .update({
+      must_change_password: false,
+      password_hash: null,
+      updated_at: timestamp,
+    })
+    .eq("id", driver.id);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  await recordAuditEvent({
+    requestId: options?.requestId,
+    entityType: "driver",
+    entityId: driver.id,
+    action: "driver.first_login_password_completed",
+    summary: `${driver.name} set a permanent password before first access.`,
+    actor: {
+      type: "driver",
+      id: driver.id,
+      label: driver.email,
+    },
+  });
+
+  return {
+    accountType,
+    email: driver.email,
+  };
 }
 
 export async function submitBusinessInquiry(
@@ -1729,6 +2166,7 @@ export async function inviteClientFromInquiry(
       phone: inquiry.phone,
       businessAddress: inquiry.businessAddress,
       status: "active",
+      mustChangePassword: true,
       createdAt: timestamp,
       updatedAt: timestamp,
       passwordHash,
@@ -1825,6 +2263,7 @@ export async function inviteClientFromInquiry(
       phone: inquiry.phone,
       business_address: inquiry.businessAddress,
       status: "active",
+      must_change_password: onboardingMethod === "temporary_password",
       created_at: timestamp,
       updated_at: timestamp,
     })
@@ -1968,6 +2407,7 @@ export async function createAdminAccount(
       email: normalizedEmail,
       role: input.role,
       status: input.status,
+      mustChangePassword: true,
       createdByAdminId: options?.actor?.id,
       createdByLabel: options?.actor?.label,
       createdAt: timestamp,
@@ -2036,6 +2476,7 @@ export async function createAdminAccount(
       email: normalizedEmail,
       role: input.role,
       status: input.status,
+      must_change_password: onboardingMethod === "temporary_password",
       created_by_admin_id: options?.actor?.id,
       created_by_label: options?.actor?.label,
       created_at: timestamp,
@@ -2295,6 +2736,7 @@ export async function resetAdminPassword(
     }
 
     account.passwordHash = passwordHash;
+    account.mustChangePassword = true;
     account.updatedAt = nowIso();
     logActivity(store, "Admin password reset", `${account.name} received a new temporary password.`);
     addAuditEventToDemoStore(store, {
@@ -2342,6 +2784,7 @@ export async function resetAdminPassword(
   const { data, error } = await supabase
     .from("admin_accounts")
     .update({
+      must_change_password: true,
       password_hash: null,
       updated_at: nowIso(),
     })
@@ -2398,6 +2841,7 @@ export async function sendAdminSetupEmail(
     }
 
     account.passwordHash = passwordHash;
+    account.mustChangePassword = true;
     account.updatedAt = nowIso();
     logActivity(store, "Admin setup email fallback", `${account.name} received a demo-only temporary password instead of an email link.`);
     addAuditEventToDemoStore(store, {
@@ -2443,6 +2887,15 @@ export async function sendAdminSetupEmail(
   });
 
   await sendSupabasePasswordSetupEmail(account.email, getPasswordSetupUrl("admin"));
+
+  await supabase
+    .from("admin_accounts")
+    .update({
+      must_change_password: false,
+      updated_at: nowIso(),
+    })
+    .eq("id", id);
+  account.mustChangePassword = false;
 
   await supabase.from("activity_log").insert({
     title: "Admin setup email sent",
@@ -2606,6 +3059,7 @@ export async function createClientAccount(
       phone: input.phone,
       businessAddress: input.businessAddress,
       status: input.status,
+      mustChangePassword: true,
       createdAt: timestamp,
       updatedAt: timestamp,
       passwordHash,
@@ -2680,6 +3134,7 @@ export async function createClientAccount(
       phone: input.phone,
       business_address: input.businessAddress,
       status: input.status,
+      must_change_password: onboardingMethod === "temporary_password",
       created_at: timestamp,
       updated_at: timestamp,
     })
@@ -2769,6 +3224,7 @@ export async function createDriverAccount(
       currentRun: input.currentRun,
       todayDeliveries: 0,
       cashOnHand: input.cashOnHand ?? 0,
+      mustChangePassword: true,
       passwordHash,
     };
 
@@ -2837,6 +3293,7 @@ export async function createDriverAccount(
       zone: input.zone,
       status: input.status,
       access_status: input.accessStatus,
+      must_change_password: onboardingMethod === "temporary_password",
       current_run: input.currentRun,
       today_deliveries: 0,
       cash_on_hand: input.cashOnHand ?? 0,
@@ -3064,6 +3521,7 @@ export async function resetDriverPassword(
     }
 
     driver.passwordHash = passwordHash;
+    driver.mustChangePassword = true;
     logActivity(store, "Driver password reset", `${driver.name} received a new temporary password.`);
     addAuditEventToDemoStore(store, {
       requestId: options?.requestId,
@@ -3112,6 +3570,7 @@ export async function resetDriverPassword(
   const { data, error } = await supabase
     .from("drivers")
     .update({
+      must_change_password: true,
       password_hash: null,
       updated_at: nowIso(),
     })
@@ -3168,6 +3627,7 @@ export async function sendDriverSetupEmail(
     }
 
     driver.passwordHash = passwordHash;
+    driver.mustChangePassword = true;
     logActivity(store, "Driver setup email fallback", `${driver.name} received a demo-only temporary password instead of an email link.`);
     addAuditEventToDemoStore(store, {
       requestId: options?.requestId,
@@ -3214,6 +3674,15 @@ export async function sendDriverSetupEmail(
   });
 
   await sendSupabasePasswordSetupEmail(driver.email, getPasswordSetupUrl("driver"));
+
+  await supabase
+    .from("drivers")
+    .update({
+      must_change_password: false,
+      updated_at: nowIso(),
+    })
+    .eq("id", id);
+  driver.mustChangePassword = false;
 
   await supabase.from("activity_log").insert({
     title: "Driver setup email sent",
@@ -3492,6 +3961,7 @@ export async function resetClientPassword(
     }
 
     account.passwordHash = passwordHash;
+    account.mustChangePassword = true;
     account.updatedAt = nowIso();
     logActivity(store, "Client password reset", `${account.businessName} received a new temporary password.`);
     addAuditEventToDemoStore(store, {
@@ -3540,6 +4010,7 @@ export async function resetClientPassword(
   const { data, error } = await supabase
     .from("client_accounts")
     .update({
+      must_change_password: true,
       password_hash: null,
       updated_at: nowIso(),
     })
@@ -3596,6 +4067,7 @@ export async function sendClientSetupEmail(
     }
 
     account.passwordHash = passwordHash;
+    account.mustChangePassword = true;
     account.updatedAt = nowIso();
     logActivity(store, "Client setup email fallback", `${account.businessName} received a demo-only temporary password instead of an email link.`);
     addAuditEventToDemoStore(store, {
@@ -3642,6 +4114,15 @@ export async function sendClientSetupEmail(
   });
 
   await sendSupabasePasswordSetupEmail(account.email, getPasswordSetupUrl("client"));
+
+  await supabase
+    .from("client_accounts")
+    .update({
+      must_change_password: false,
+      updated_at: nowIso(),
+    })
+    .eq("id", id);
+  account.mustChangePassword = false;
 
   await supabase.from("activity_log").insert({
     title: "Client setup email sent",

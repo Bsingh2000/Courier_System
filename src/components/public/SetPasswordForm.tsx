@@ -51,18 +51,42 @@ function resolveAccountType(user: User | null | undefined, fallback?: string): A
 
 interface SetPasswordFormProps {
   fallbackAccountType?: string;
+  firstLoginEmail?: string;
+  firstLoginToken?: string;
 }
 
-export function SetPasswordForm({ fallbackAccountType }: SetPasswordFormProps) {
+type LoginApiResponse = { ok: boolean; message?: string };
+type FirstLoginSetupResponse =
+  | {
+      ok: true;
+      email: string;
+      accountType: AccountType;
+      message?: string;
+    }
+  | {
+      ok: false;
+      message?: string;
+    };
+
+export function SetPasswordForm({
+  fallbackAccountType,
+  firstLoginEmail,
+  firstLoginToken,
+}: SetPasswordFormProps) {
+  const firstLoginFlow = Boolean(firstLoginToken);
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!firstLoginFlow);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
+    if (firstLoginFlow) {
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
     let active = true;
 
@@ -96,18 +120,43 @@ export function SetPasswordForm({ fallbackAccountType }: SetPasswordFormProps) {
       active = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [firstLoginFlow]);
+
+  async function continueIntoWorkspace(
+    accountType: AccountType,
+    email: string,
+    nextPassword: string,
+  ) {
+    const target = accountTargets[accountType];
+    const loginResponse = await fetch(target.loginApiPath, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password: nextPassword,
+      }),
+    });
+    const loginPayload = (await loginResponse.json()) as LoginApiResponse;
+
+    if (loginResponse.ok && loginPayload.ok) {
+      router.push(target.workspacePath);
+      router.refresh();
+      return;
+    }
+
+    const signInUrl = new URL(target.loginPath, window.location.origin);
+    signInUrl.searchParams.set("email", email);
+    signInUrl.searchParams.set("setup", "1");
+    window.location.assign(signInUrl.toString());
+  }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     startTransition(async () => {
       setFeedback(null);
-
-      if (!session?.user?.email) {
-        setFeedback("This setup link is missing a valid session. Request a new email.");
-        return;
-      }
 
       if (password.length < 8) {
         setFeedback("Use at least 8 characters for the new password.");
@@ -116,6 +165,33 @@ export function SetPasswordForm({ fallbackAccountType }: SetPasswordFormProps) {
 
       if (password !== confirmPassword) {
         setFeedback("The password confirmation does not match.");
+        return;
+      }
+
+      if (firstLoginFlow) {
+        const response = await fetch("/api/auth/first-login-password", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            token: firstLoginToken,
+            password,
+          }),
+        });
+        const payload = (await response.json()) as FirstLoginSetupResponse;
+
+        if (!response.ok || !payload.ok) {
+          setFeedback(payload.message ?? "Password setup failed.");
+          return;
+        }
+
+        await continueIntoWorkspace(payload.accountType, payload.email, password);
+        return;
+      }
+
+      if (!session?.user?.email) {
+        setFeedback("This setup link is missing a valid session. Request a new email.");
         return;
       }
 
@@ -135,35 +211,16 @@ export function SetPasswordForm({ fallbackAccountType }: SetPasswordFormProps) {
         return;
       }
 
-      const target = accountTargets[accountType];
-      const loginResponse = await fetch(target.loginApiPath, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: session.user.email,
-          password,
-        }),
-      });
-
       await supabase.auth.signOut().catch(() => undefined);
-
-      if (loginResponse.ok) {
-        router.push(target.workspacePath);
-        router.refresh();
-        return;
-      }
-
-      const signInUrl = new URL(target.loginPath, window.location.origin);
-      signInUrl.searchParams.set("email", session.user.email);
-      signInUrl.searchParams.set("setup", "1");
-      window.location.assign(signInUrl.toString());
+      await continueIntoWorkspace(accountType, session.user.email, password);
     });
   }
 
-  const accountType = resolveAccountType(session?.user, fallbackAccountType);
+  const accountType = firstLoginFlow
+    ? resolveAccountType(null, fallbackAccountType)
+    : resolveAccountType(session?.user, fallbackAccountType);
   const target = accountType ? accountTargets[accountType] : null;
+  const displayEmail = firstLoginFlow ? firstLoginEmail : session?.user?.email;
 
   if (loading) {
     return (
@@ -176,7 +233,7 @@ export function SetPasswordForm({ fallbackAccountType }: SetPasswordFormProps) {
     );
   }
 
-  if (!session?.user?.email) {
+  if (!firstLoginFlow && !session?.user?.email) {
     return (
       <div className="panel-strong max-w-xl space-y-5">
         <div>
@@ -208,11 +265,13 @@ export function SetPasswordForm({ fallbackAccountType }: SetPasswordFormProps) {
       <div className="mb-6">
         <p className="section-label">Password setup</p>
         <h1 className="mt-2 text-3xl font-semibold text-white">
-          Create your password and open the system
+          {firstLoginFlow
+            ? "Create your password before entering the system"
+            : "Create your password and open the system"}
         </h1>
         <p className="copy mt-3">
-          Set a password for <span className="text-white">{session.user.email}</span>.
-          Once saved, you will move into the correct workspace automatically when possible.
+          Set a password for <span className="text-white">{displayEmail}</span>. Once
+          saved, you will move into the correct workspace automatically when possible.
         </p>
       </div>
 
@@ -220,9 +279,13 @@ export function SetPasswordForm({ fallbackAccountType }: SetPasswordFormProps) {
         <div className="flex items-start gap-3">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <p className="font-semibold text-white">Setup link accepted.</p>
+            <p className="font-semibold text-white">
+              {firstLoginFlow ? "Temporary password accepted." : "Setup link accepted."}
+            </p>
             <p className="mt-1 text-[var(--foreground)]">
-              Finish the password step below to continue.
+              {firstLoginFlow
+                ? "Choose a new password below before your first workspace session."
+                : "Finish the password step below to continue."}
             </p>
           </div>
         </div>

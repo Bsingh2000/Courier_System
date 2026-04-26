@@ -24,6 +24,7 @@ export type BusinessInquiryStatus =
   | "archived";
 export type ClientAccountStatus = "active" | "paused";
 export type AccountOnboardingMethod = "temporary_password" | "setup_email";
+export type PasswordSetupAccountType = "admin" | "client" | "driver";
 export type AuditActorType = "admin" | "client" | "driver" | "system";
 export type AuditEntityType =
   | "delivery"
@@ -78,6 +79,7 @@ export interface DriverRecord {
   currentRun: string;
   todayDeliveries: number;
   cashOnHand: number;
+  mustChangePassword?: boolean;
   lastLoginAt?: string;
 }
 
@@ -121,6 +123,7 @@ export interface ClientAccountRecord {
   phone: string;
   businessAddress: string;
   status: ClientAccountStatus;
+  mustChangePassword?: boolean;
   lastLoginAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -132,6 +135,7 @@ export interface AdminAccountRecord {
   email: string;
   role: AdminRole;
   status: AdminAccountStatus;
+  mustChangePassword?: boolean;
   lastLoginAt?: string;
   createdByAdminId?: string;
   createdByLabel?: string;

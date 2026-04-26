@@ -1,7 +1,11 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { createDriverSession, getDriverCookieName } from "@/lib/auth";
+import {
+  createDriverSession,
+  createFirstLoginPasswordToken,
+  getDriverCookieName,
+} from "@/lib/auth";
 import { authenticateDriver, recordAuditEvent } from "@/lib/repository";
 import { driverLoginSchema } from "@/lib/validators";
 
@@ -30,6 +34,25 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { ok: false, message: "Invalid driver credentials." },
         { status: 401 },
+      );
+    }
+
+    if ("accountId" in driver) {
+      const setupToken = await createFirstLoginPasswordToken({
+        accountId: driver.accountId,
+        email: driver.email,
+        accountType: driver.accountType,
+      });
+
+      return NextResponse.json(
+        {
+          ok: false,
+          requiresPasswordChange: true,
+          setupToken,
+          email: driver.email,
+          accountType: driver.accountType,
+        },
+        { status: 403 },
       );
     }
 

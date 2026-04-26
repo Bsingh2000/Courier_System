@@ -4,6 +4,18 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { LockKeyhole, Smartphone } from "lucide-react";
 
+type LoginResponse =
+  | { ok: true; message?: string }
+  | { ok: false; message?: string }
+  | {
+      ok: false;
+      message?: string;
+      requiresPasswordChange: true;
+      setupToken: string;
+      email: string;
+      accountType: "driver";
+    };
+
 interface DriverLoginFormProps {
   demoHint?: {
     email: string;
@@ -38,7 +50,20 @@ export function DriverLoginForm({
         body: JSON.stringify({ email, password }),
       });
 
-      const payload = (await response.json()) as { ok: boolean; message?: string };
+      const payload = (await response.json()) as LoginResponse;
+
+      if (
+        response.status === 403 &&
+        "requiresPasswordChange" in payload &&
+        payload.requiresPasswordChange
+      ) {
+        const setupUrl = new URL("/set-password", window.location.origin);
+        setupUrl.searchParams.set("account", payload.accountType);
+        setupUrl.searchParams.set("email", payload.email);
+        setupUrl.searchParams.set("token", payload.setupToken);
+        window.location.assign(setupUrl.toString());
+        return;
+      }
 
       if (!response.ok || !payload.ok) {
         setFeedback(payload.message ?? "Sign in failed.");

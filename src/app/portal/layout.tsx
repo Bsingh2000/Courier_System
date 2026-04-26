@@ -59,8 +59,11 @@ export default async function PortalLayout({
             <div>
               <p className="section-label">Business</p>
               <p className="mt-2 text-sm text-white">{client.businessName}</p>
+              <p className="mt-1 text-xs text-[var(--muted)] [overflow-wrap:anywhere]">
+                {client.email}
+              </p>
               <p className="mt-1 text-xs text-[var(--muted)]">
-                {client.email} / {isDemoMode() ? "Demo mode" : "Live mode"}
+                {isDemoMode() ? "Demo mode" : "Live mode"}
               </p>
             </div>
             <div className="grid gap-3">

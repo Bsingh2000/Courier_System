@@ -3,7 +3,12 @@ import "server-only";
 import { cookies } from "next/headers";
 import { jwtVerify, SignJWT } from "jose";
 
-import type { AdminRole, ClientAccountRecord, DriverRecord } from "@/lib/types";
+import type {
+  AdminRole,
+  ClientAccountRecord,
+  DriverRecord,
+  PasswordSetupAccountType,
+} from "@/lib/types";
 import { getAdminEmail, getAdminPassword, getSessionSecret } from "@/lib/env";
 
 const ADMIN_COOKIE_NAME = "routegrid-admin-session";
@@ -28,6 +33,12 @@ export interface DriverSession {
   driverId: string;
   email: string;
   name: string;
+}
+
+export interface FirstLoginPasswordToken {
+  accountId: string;
+  email: string;
+  accountType: PasswordSetupAccountType;
 }
 
 function getSecret() {
@@ -223,4 +234,50 @@ export async function requireDriverSession() {
   }
 
   return session;
+}
+
+export async function createFirstLoginPasswordToken(payload: FirstLoginPasswordToken) {
+  return new SignJWT({
+    purpose: "first-login-password",
+    accountId: payload.accountId,
+    email: payload.email,
+    accountType: payload.accountType,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("15m")
+    .sign(getSecret());
+}
+
+export async function verifyFirstLoginPasswordToken(token?: string | null) {
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const verified = await jwtVerify<{
+      purpose: string;
+      accountId: string;
+      email: string;
+      accountType: string;
+    }>(token, getSecret());
+    const { purpose, accountId, email, accountType } = verified.payload;
+
+    if (
+      purpose !== "first-login-password" ||
+      typeof accountId !== "string" ||
+      typeof email !== "string" ||
+      !["admin", "client", "driver"].includes(accountType)
+    ) {
+      return null;
+    }
+
+    return {
+      accountId,
+      email,
+      accountType: accountType as PasswordSetupAccountType,
+    } satisfies FirstLoginPasswordToken;
+  } catch {
+    return null;
+  }
 }

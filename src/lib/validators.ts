@@ -175,3 +175,8 @@ export const driverCreateRequestSchema = driverUpsertSchema.extend({
 export const inquiryInviteRequestSchema = z.object({
   onboardingMethod: onboardingMethodSchema,
 });
+
+export const firstLoginPasswordSetupSchema = z.object({
+  token: z.string().trim().min(20).max(4000),
+  password: z.string().min(8).max(120),
+});

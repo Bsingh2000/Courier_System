@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import {
+  authenticateAdmin,
+  authenticateClient,
+  authenticateDriver,
+  completeFirstLoginPasswordSetup,
   createAdminAccount,
   createClientAccount,
   createDriverAccount,
@@ -13,6 +17,7 @@ import {
   deleteInventoryItem,
   getDashboardSnapshot,
   inviteClientFromInquiry,
+  resetDriverPassword,
 } from "./repository";
 
 const DEMO_STORE_KEY = "__routegridDemoStore";
@@ -163,6 +168,159 @@ describe("repository demo workflows", () => {
     expect(invitation?.setupEmailSent).toBe(false);
     expect(invitation?.setupEmailFallback).toBe(true);
     expect(invitation?.temporaryPassword).toBeTruthy();
+  });
+
+  it("requires a newly created admin to set a permanent password before first access", async () => {
+    const created = await createAdminAccount(
+      {
+        name: "First Login Admin",
+        email: "first-login-admin@example.com",
+        role: "admin",
+        status: "active",
+      },
+      {
+        actor: {
+          type: "admin",
+          id: "admin-owner-1",
+          label: "admin@routegrid.local",
+        },
+      },
+    );
+
+    expect(created.temporaryPassword).toBeTruthy();
+    expect(created.account.mustChangePassword).toBe(true);
+
+    const challenge = await authenticateAdmin(
+      created.account.email,
+      created.temporaryPassword!,
+    );
+
+    expect(challenge).toMatchObject({
+      requiresPasswordChange: true,
+      accountType: "admin",
+      email: created.account.email,
+    });
+
+    const newPassword = "AdminReset123!";
+    const completed = await completeFirstLoginPasswordSetup(
+      "admin",
+      created.account.id,
+      newPassword,
+    );
+
+    expect(completed).toEqual({
+      accountType: "admin",
+      email: created.account.email,
+    });
+
+    const authenticated = await authenticateAdmin(created.account.email, newPassword);
+
+    expect(authenticated).not.toBeNull();
+    expect(authenticated && "requiresPasswordChange" in authenticated).toBe(false);
+    if (!authenticated || "requiresPasswordChange" in authenticated) {
+      throw new Error("Expected authenticated admin result.");
+    }
+
+    expect(authenticated.account.email).toBe(created.account.email);
+  });
+
+  it("requires an invited client to set a permanent password before first portal access", async () => {
+    const snapshot = await getDashboardSnapshot();
+    const inquiry = snapshot.inquiries.find(
+      (item) => item.status === "qualified" && !item.invitedClientId,
+    );
+
+    expect(inquiry).toBeDefined();
+
+    const invitation = await inviteClientFromInquiry(inquiry!.id, {
+      actor: {
+        type: "admin",
+        id: "admin-owner-1",
+        label: "admin@routegrid.local",
+      },
+    });
+
+    expect(invitation?.temporaryPassword).toBeTruthy();
+    expect(invitation?.account.mustChangePassword).toBe(true);
+
+    const challenge = await authenticateClient(
+      invitation!.account.email,
+      invitation!.temporaryPassword!,
+    );
+
+    expect(challenge).toMatchObject({
+      requiresPasswordChange: true,
+      accountType: "client",
+      email: invitation!.account.email,
+    });
+
+    const newPassword = "ClientReset123!";
+    const completed = await completeFirstLoginPasswordSetup(
+      "client",
+      invitation!.account.id,
+      newPassword,
+    );
+
+    expect(completed).toEqual({
+      accountType: "client",
+      email: invitation!.account.email,
+    });
+
+    const authenticated = await authenticateClient(invitation!.account.email, newPassword);
+
+    expect(authenticated).not.toBeNull();
+    expect(authenticated && "requiresPasswordChange" in authenticated).toBe(false);
+    if (!authenticated || "requiresPasswordChange" in authenticated) {
+      throw new Error("Expected authenticated client result.");
+    }
+
+    expect(authenticated.email).toBe(invitation!.account.email);
+  });
+
+  it("requires a reset driver password to be changed before workspace access", async () => {
+    const reset = await resetDriverPassword("drv-south-1", {
+      actor: {
+        type: "admin",
+        id: "admin-owner-1",
+        label: "admin@routegrid.local",
+      },
+    });
+
+    expect(reset?.temporaryPassword).toBeTruthy();
+    expect(reset?.driver.mustChangePassword).toBe(true);
+
+    const challenge = await authenticateDriver(
+      reset!.driver.email,
+      reset!.temporaryPassword!,
+    );
+
+    expect(challenge).toMatchObject({
+      requiresPasswordChange: true,
+      accountType: "driver",
+      email: reset!.driver.email,
+    });
+
+    const newPassword = "DriverReset123!";
+    const completed = await completeFirstLoginPasswordSetup(
+      "driver",
+      reset!.driver.id,
+      newPassword,
+    );
+
+    expect(completed).toEqual({
+      accountType: "driver",
+      email: reset!.driver.email,
+    });
+
+    const authenticated = await authenticateDriver(reset!.driver.email, newPassword);
+
+    expect(authenticated).not.toBeNull();
+    expect(authenticated && "requiresPasswordChange" in authenticated).toBe(false);
+    if (!authenticated || "requiresPasswordChange" in authenticated) {
+      throw new Error("Expected authenticated driver result.");
+    }
+
+    expect(authenticated.email).toBe(reset!.driver.email);
   });
 
   it("prevents deleting the last active owner", async () => {

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import {
+  createFirstLoginPasswordToken,
   createAdminSession,
   getAdminCookieName,
 } from "@/lib/auth";
@@ -33,6 +34,25 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { ok: false, message: "Invalid admin credentials." },
         { status: 401 },
+      );
+    }
+
+    if (!("account" in result)) {
+      const setupToken = await createFirstLoginPasswordToken({
+        accountId: result.accountId,
+        email: result.email,
+        accountType: result.accountType,
+      });
+
+      return NextResponse.json(
+        {
+          ok: false,
+          requiresPasswordChange: true,
+          setupToken,
+          email: result.email,
+          accountType: result.accountType,
+        },
+        { status: 403 },
       );
     }
 

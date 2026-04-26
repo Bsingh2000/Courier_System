@@ -8,6 +8,7 @@ create table if not exists public.client_accounts (
   phone text not null,
   business_address text not null,
   status text not null default 'active' check (status in ('active', 'paused')),
+  must_change_password boolean not null default false,
   password_hash text,
   last_login_at timestamptz,
   created_at timestamptz not null default now(),
@@ -20,6 +21,7 @@ create table if not exists public.admin_accounts (
   email text not null unique,
   role text not null default 'owner' check (role in ('owner', 'admin', 'dispatcher', 'viewer')),
   status text not null default 'active' check (status in ('active', 'paused')),
+  must_change_password boolean not null default false,
   password_hash text,
   last_login_at timestamptz,
   created_by_admin_id uuid references public.admin_accounts(id) on delete set null,
@@ -50,6 +52,7 @@ create table if not exists public.drivers (
   zone text not null check (zone in ('east', 'west', 'north', 'south')),
   status text not null default 'available' check (status in ('available', 'on_run', 'off_duty')),
   access_status text not null default 'active' check (access_status in ('active', 'paused')),
+  must_change_password boolean not null default false,
   password_hash text,
   current_run text not null default '',
   today_deliveries integer not null default 0,
@@ -99,6 +102,15 @@ add column if not exists email text;
 alter table public.drivers
 add column if not exists access_status text not null default 'active'
 check (access_status in ('active', 'paused'));
+
+alter table public.admin_accounts
+add column if not exists must_change_password boolean not null default false;
+
+alter table public.client_accounts
+add column if not exists must_change_password boolean not null default false;
+
+alter table public.drivers
+add column if not exists must_change_password boolean not null default false;
 
 alter table public.drivers
 add column if not exists password_hash text;

@@ -95,7 +95,9 @@ export default async function DashboardLayout({
               <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
                 {session.role}
               </p>
-              <p className="mt-1 text-xs text-[var(--muted)]">{session.email}</p>
+              <p className="mt-1 text-xs text-[var(--muted)] [overflow-wrap:anywhere]">
+                {session.email}
+              </p>
               <p className="mt-1 text-xs text-[var(--muted)]">
                 {demoMode ? "Demo mode" : "Live mode"}
               </p>

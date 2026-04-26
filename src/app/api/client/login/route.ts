@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import {
+  createFirstLoginPasswordToken,
   createClientSession,
   getClientCookieName,
 } from "@/lib/auth";
@@ -33,6 +34,25 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { ok: false, message: "Invalid client credentials." },
         { status: 401 },
+      );
+    }
+
+    if ("accountId" in client) {
+      const setupToken = await createFirstLoginPasswordToken({
+        accountId: client.accountId,
+        email: client.email,
+        accountType: client.accountType,
+      });
+
+      return NextResponse.json(
+        {
+          ok: false,
+          requiresPasswordChange: true,
+          setupToken,
+          email: client.email,
+          accountType: client.accountType,
+        },
+        { status: 403 },
       );
     }
 
